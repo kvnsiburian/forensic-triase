@@ -1,0 +1,18 @@
+# Dataset dan output — terlalu besar untuk GitHub
+*.raw
+*.dmp
+*.vmem
+*.mem
+output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# VSCode
+.vscode/
+
+# Log files
+*.log
