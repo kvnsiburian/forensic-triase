@@ -83,7 +83,7 @@ SUSPICIOUS_PATH_KEYWORDS = [
     "\\desktop\\",
 ]
 
-# Proses yang secara legitimate menggunakan PAGE_EXECUTE_READWRITE
+# Proses yang secara legitimate menggunakan PAGE_EXECUTE_READWRITE ; mantap
 # Karena teknik JIT compilation, scan engine, atau runtime optimization
 # Sumber: Microsoft documentation + SANS FOR508 baseline
 LEGIT_RWX_PROCESSES = {
