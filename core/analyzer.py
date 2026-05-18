@@ -97,6 +97,8 @@ LEGIT_RWX_PROCESSES = {
     "firefox.exe",          # SpiderMonkey JIT
     "msedge.exe",           # V8 JIT
     "node.exe",             # V8 JIT
+    "searchapp.exe",    # Windows Search
+    "searchapp.ex",     # truncated 14 char
 }
 
 # Path yang NORMAL untuk proses sistem Windows
@@ -148,6 +150,7 @@ LEGIT_NETWORK_PROCESSES = {
     "m365copilot.ex",       # Microsoft 365 Copilot (truncated 14 char)
     "m365copilot.exe",      # full name
     "backgroundtaskh",      # variant truncated
+    "msedgewebview2",   # Microsoft Edge WebView2
 }
 
 
