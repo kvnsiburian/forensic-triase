@@ -100,6 +100,8 @@ LEGIT_RWX_PROCESSES = {
     "searchapp.exe",    # Windows Search
     "searchapp.ex",     # truncated 14 char
     "phoneexperienc",   # Phone Experience Host (truncated 14 char)
+    "soffice.bin",      # LibreOffice main process — legitimate RWX
+    "soffice.exe",      # LibreOffice launcher
 }
 
 # Path yang NORMAL untuk proses sistem Windows
@@ -214,6 +216,10 @@ SUSPICIOUS_CHILD_SPAWNERS = {
     "outlook.exe",
     "iexplore.exe", "chrome.exe", "firefox.exe", "msedge.exe",
     "notepad.exe",
+    "soffice.bin",      # LibreOffice Writer/Calc/Impress
+    "soffice.exe",      # LibreOffice launcher
+    "python.exe",       # Python interpreter
+    "python3.exe",      # Python 3
 }
 
 SHELL_PROCESSES = {
