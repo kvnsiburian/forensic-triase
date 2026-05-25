@@ -99,6 +99,7 @@ LEGIT_RWX_PROCESSES = {
     "node.exe",             # V8 JIT
     "searchapp.exe",    # Windows Search
     "searchapp.ex",     # truncated 14 char
+    "phoneexperienc",   # Phone Experience Host (truncated 14 char)
 }
 
 # Path yang NORMAL untuk proses sistem Windows
