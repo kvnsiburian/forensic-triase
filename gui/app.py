@@ -35,6 +35,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
 import logging
+import re
 from pathlib import Path
 import sys
 
@@ -52,17 +53,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 APP_TITLE   = "Platform Triase Forensik Memori"
-APP_VERSION = "v1.0"
+APP_VERSION = ""
 WIN_WIDTH   = 1100
 WIN_HEIGHT  = 750
 MIN_WIDTH   = 900
 MIN_HEIGHT  = 600
 
 # Warna
-COLOR_BG         = "#1e1e2e"
-COLOR_PANEL      = "#2a2a3e"
-COLOR_ACCENT     = "#7c3aed"
-COLOR_ACCENT_HOV = "#6d28d9"
+COLOR_BG         = "#0d1b2a"
+COLOR_PANEL      = "#1b2c3e"
+COLOR_ACCENT     = "#1565c0"
+COLOR_ACCENT_HOV = "#0d47a1"
 COLOR_SUSPICIOUS = "#3b1a1a"
 COLOR_CLEAN      = "#1a2e1a"
 COLOR_TEXT       = "#e2e8f0"
@@ -71,7 +72,7 @@ COLOR_RED        = "#ef4444"
 COLOR_ORANGE     = "#f97316"
 COLOR_YELLOW     = "#eab308"
 COLOR_GREEN      = "#22c55e"
-COLOR_BORDER     = "#3f3f5f"
+COLOR_BORDER     = "#1e3a5f"
 
 COLOR_BG_HIGH    = "#3b1a1a"
 COLOR_BG_MEDIUM  = "#2e1a0a"
@@ -163,7 +164,7 @@ class ForensicTriaseApp(tk.Tk):
 
         tk.Label(
             frame,
-            text=f"  [TRIASE]  {APP_TITLE}",
+            text=f"{APP_TITLE}",
             font=FONT_TITLE,
             fg="white",
             bg=COLOR_ACCENT,
@@ -171,24 +172,28 @@ class ForensicTriaseApp(tk.Tk):
 
         tk.Label(
             frame,
-            text="Berbasis Volatility3  |  ISO/IEC 27042  |  PSSN",
+            text="Volatility3",
             font=FONT_SMALL,
-            fg="#c4b5fd",
+            fg="#000000",
             bg=COLOR_ACCENT,
         ).pack(side="right", padx=16)
 
     def _build_file_panel(self):
         """Panel pemilihan file memory dump dan tombol analisis."""
-        frame = tk.Frame(self, bg=COLOR_PANEL, pady=10, padx=16)
-        frame.pack(fill="x", padx=12, pady=(10, 4))
+        outer = tk.Frame(self, bg=COLOR_PANEL, pady=10, padx=16)
+        outer.pack(fill="x", padx=12, pady=(10, 4))
+
+        # Baris atas: label, entry, tombol-tombol
+        controls = tk.Frame(outer, bg=COLOR_PANEL)
+        controls.pack(fill="x")
 
         tk.Label(
-            frame, text="Memory Dump:",
+            controls, text="Memory Dump:",
             font=FONT_HEADER, fg=COLOR_TEXT, bg=COLOR_PANEL,
         ).pack(side="left")
 
         self._entry_path = tk.Entry(
-            frame,
+            controls,
             textvariable=self._dump_path,
             font=FONT_MONO,
             bg="#16213e", fg=COLOR_TEXT,
@@ -199,7 +204,7 @@ class ForensicTriaseApp(tk.Tk):
         self._entry_path.pack(side="left", padx=(8, 6), ipady=4)
 
         self._btn_browse = tk.Button(
-            frame, text="Browse",
+            controls, text="Browse",
             font=FONT_NORMAL,
             bg=COLOR_BORDER, fg=COLOR_TEXT,
             activebackground="#555577",
@@ -210,7 +215,7 @@ class ForensicTriaseApp(tk.Tk):
         self._btn_browse.pack(side="left", padx=(0, 10))
 
         self._btn_analyze = tk.Button(
-            frame, text="  Mulai Analisis",
+            controls, text="  Mulai Analisis",
             font=FONT_HEADER,
             bg=COLOR_ACCENT, fg="white",
             activebackground=COLOR_ACCENT_HOV,
@@ -221,7 +226,7 @@ class ForensicTriaseApp(tk.Tk):
         self._btn_analyze.pack(side="left")
 
         self._btn_export = tk.Button(
-            frame, text="  Export Excel",
+            controls, text="  Export Excel",
             font=FONT_NORMAL,
             bg="#166534", fg="white",
             activebackground="#14532d",
@@ -231,6 +236,16 @@ class ForensicTriaseApp(tk.Tk):
             command=self._export_csv,
         )
         self._btn_export.pack(side="right")
+
+        # Baris bawah: progress bar determinate (25% per plugin)
+        self._progress = ttk.Progressbar(
+            outer,
+            orient="horizontal",
+            mode="determinate",
+            maximum=100,
+            style="Dark.Horizontal.TProgressbar",
+        )
+        self._progress.pack(fill="x", pady=(6, 0))
 
     def _build_stats_panel(self):
         """Panel statistik — Total PID, SUSPICIOUS, CLEAN."""
@@ -374,6 +389,12 @@ class ForensicTriaseApp(tk.Tk):
         )
         self._detail_text.pack(fill="both", expand=True)
 
+        # Tag warna untuk Detail Indikator
+        self._detail_text.tag_configure("header",      foreground="#90caf9", font=("Consolas", 9, "bold"))
+        self._detail_text.tag_configure("rule_line",   foreground="#f97316")
+        self._detail_text.tag_configure("rekomendasi", foreground="#22c55e", font=("Consolas", 9, "bold"))
+        self._detail_text.tag_configure("arrow_line",  foreground="#94a3b8")
+        
         paned.add(bottom_frame, minsize=100)
 
     def _build_statusbar(self):
@@ -389,14 +410,6 @@ class ForensicTriaseApp(tk.Tk):
             bg=COLOR_BORDER,
             anchor="w",
         ).pack(side="left", padx=12)
-
-        tk.Label(
-            frame,
-            text=f"Kevin Armando Siburian -- PSSN {APP_VERSION}",
-            font=FONT_SMALL,
-            fg=COLOR_SUBTEXT,
-            bg=COLOR_BORDER,
-        ).pack(side="right", padx=12)
 
     def _apply_treeview_style(self):
         """Apply style gelap ke Treeview."""
@@ -428,6 +441,14 @@ class ForensicTriaseApp(tk.Tk):
         self._tree.tag_configure("medium", background=COLOR_BG_MEDIUM, foreground=COLOR_ORANGE)
         self._tree.tag_configure("low",    background=COLOR_BG_LOW,    foreground=COLOR_YELLOW)
         self._tree.tag_configure("clean",  background=COLOR_BG_CLEAN,  foreground=COLOR_GREEN)
+
+        style.configure(
+            "Dark.Horizontal.TProgressbar",
+            troughcolor="#1b2c3e",
+            background="#ffffff",
+            thickness=6,
+            borderwidth=0,
+        )
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -469,6 +490,7 @@ class ForensicTriaseApp(tk.Tk):
         self._clear_table()
         self._reset_stats()
         self._search_var.set("")
+        self._progress["value"] = 0
         self._set_buttons_running(True)
         self._set_status("Memulai analisis...")
 
@@ -491,6 +513,9 @@ class ForensicTriaseApp(tk.Tk):
 
     def _on_progress(self, msg: str):
         self.after(0, self._set_status, msg)
+        m = re.search(r'\[(\d)/4\]', msg)
+        if m:
+            self.after(0, self._progress.configure, {"value": int(m.group(1)) * 20})
 
     def _on_analysis_done(self, result: dict):
         self._set_buttons_running(False)
@@ -510,6 +535,7 @@ class ForensicTriaseApp(tk.Tk):
 
         self._populate_table(self._classifications)
         self._btn_export.configure(state="normal")
+        self._progress["value"] = 100
 
         self._set_status(
             f"Analisis selesai: {stats['total']} PID | "
@@ -537,28 +563,66 @@ class ForensicTriaseApp(tk.Tk):
         if not rec:
             return
 
-        reasons = rec.get("Reasons", [])
-        if reasons:
-            detail = "--- INDIKATOR ANOMALI -------------------------------------------\n"
-            detail += "\n".join(reasons)
-            detail += "\n\n--- REKOMENDASI INVESTIGASI -------------------------------------"
-            if rec.get("Rule1_hit"):
-                detail += "\n\n" + REKOMENDASI["Rule1"]
-            if rec.get("Rule2_hit"):
-                detail += "\n\n" + REKOMENDASI["Rule2"]
-            if rec.get("Rule3_hit"):
-                detail += "\n\n" + REKOMENDASI["Rule3"]
-            if rec.get("Rule4_hit"):
-                detail += "\n\n" + REKOMENDASI["Rule4"]
-        else:
-            detail = (
-                f"  PID {pid_str} ({rec['Name']}) "
-                f"-- tidak ada indikator anomali ditemukan."
-            )
-
         self._detail_text.configure(state="normal")
         self._detail_text.delete("1.0", "end")
-        self._detail_text.insert("1.0", detail)
+
+        reasons = rec.get("Reasons", [])
+        if reasons:
+            # Header indikator anomali
+            self._detail_text.insert("end", "--- INDIKATOR ANOMALI -------------------------------------------\n", "header")
+            for reason in reasons:
+                self._detail_text.insert("end", f"{reason}\n", "rule_line")
+
+            self._detail_text.insert("end", "\n")
+
+            # Ekstrak artefak spesifik dari reasons
+            rule2_ips      = []
+            rule4_children = []
+            for reason in reasons:
+                if "[Rule2]" in reason:
+                    # Format: -> 192.168.1.1:4444 (TCP, ESTABLISHED)
+                    m = re.search(r'-> (\d+\.\d+\.\d+\.\d+:\d+)', reason)
+                    if m:
+                        rule2_ips.append(m.group(1))
+                if "[Rule4]" in reason:
+                    # Format: -> 'cmd.exe' (PID=...)
+                    m = re.search(r"-> '([^']+)' \(PID=", reason)
+                    if m:
+                        rule4_children.append(m.group(1))
+
+            # Header rekomendasi
+            self._detail_text.insert("end", "--- REKOMENDASI INVESTIGASI -------------------------------------\n", "header")
+
+            rule_meta = [
+                ("Rule1", rec.get("Rule1_hit"), 3),
+                ("Rule2", rec.get("Rule2_hit"), 2),
+                ("Rule3", rec.get("Rule3_hit"), 3),
+                ("Rule4", rec.get("Rule4_hit"), 2),
+            ]
+
+            for key, flag, weight in rule_meta:
+                if flag:
+                    lines = REKOMENDASI[key].split("\n")
+                    self._detail_text.insert("end", f"\n{lines[0]} (+{weight} poin)\n", "rekomendasi")
+                    for line in lines[1:]:
+                        self._detail_text.insert("end", f"{line}\n", "arrow_line")
+                        # Rule 2: sisipkan IP spesifik setelah baris VirusTotal generik
+                        if key == "Rule2" and "Telusuri reputasi IP tujuan" in line:
+                            for ip in rule2_ips:
+                                self._detail_text.insert("end",
+                                    f"   -> Telusuri reputasi {ip} di VirusTotal\n", "arrow_line")
+                        # Rule 4: sisipkan nama child process setelah baris pstree
+                        if key == "Rule4" and "windows.pstree" in line and rule4_children:
+                            for child in rule4_children:
+                                self._detail_text.insert("end",
+                                    f"   -> Child process mencurigakan terdeteksi: {child}\n", "arrow_line")
+        else:
+            self._detail_text.insert(
+                "end",
+                f"  PID {pid_str} ({rec['Name']}) -- tidak ada indikator anomali ditemukan.",
+                "rekomendasi",
+            )
+
         self._detail_text.configure(state="disabled")
 
     def _on_search(self, *args):
@@ -671,8 +735,10 @@ class ForensicTriaseApp(tk.Tk):
 
         if running:
             self._btn_analyze.configure(text="  Menganalisis...")
+            self._progress["value"] = 0
         else:
             self._btn_analyze.configure(text="  Mulai Analisis")
+            self._progress["value"] = 0
 
 
 # ---------------------------------------------------------------------------
