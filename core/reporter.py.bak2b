@@ -12,7 +12,7 @@ Output:
        Sheet 4 — Malfind   : output mentah windows.malware.malfind
        Sheet 5 — Klasifikasi: hasil klasifikasi akhir per PID
 
-  2. [nama_dump]_[timestamp]_summary.xlsx
+  2. [nama_dump]_[timestamp]_summary.csv
      Satu baris per sesi — statistik ringkasan.
 
 Author  : Kevin Armando Siburian (2221101800)
@@ -99,17 +99,8 @@ def _auto_width(ws):
         ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
 
 
-# Kolom yang di-hide per sheet
-HIDE_COLUMNS = {
-    "PSList":  {"Handles", "__children", "File output"},
-    "PSTree":  {"Handles", "__children"},
-    "NetScan": {"__children"},
-    "Malfind": {"__children"},
-}
-
-
 def _write_plugin_sheet(ws, records: list, sheet_title: str):
-    """Tulis data plugin mentah ke worksheet, hide kolom yang tidak perlu."""
+    """Tulis data plugin mentah ke worksheet."""
     ws.title = sheet_title
 
     if not records:
@@ -127,13 +118,6 @@ def _write_plugin_sheet(ws, records: list, sheet_title: str):
 
     _auto_width(ws)
     ws.freeze_panes = "A2"
-
-    # Hide kolom yang tidak perlu
-    hidden = HIDE_COLUMNS.get(sheet_title, set())
-    for col_idx, header in enumerate(headers, start=1):
-        if header in hidden:
-            col_letter = get_column_letter(col_idx)
-            ws.column_dimensions[col_letter].hidden = True
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +214,7 @@ def export_summary(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
 ) -> Path:
     _prepare_output_dir(output_dir)
-    output_path = _make_filename(dump_name, "summary", output_dir, ext="xlsx")
+    output_path = _make_filename(dump_name, "summary", output_dir, ext="csv")
 
     total      = len(classifications)
     suspicious = sum(1 for r in classifications if r["Status"] == "SUSPICIOUS")
@@ -249,22 +233,25 @@ def export_summary(
         "Rule1_Hits", "Rule2_Hits", "Rule3_Hits", "Rule4_Hits",
     ]
 
-    values = [
-        dump_name,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        total, suspicious, high, medium, low, clean,
-        rule1_hits, rule2_hits, rule3_hits, rule4_hits,
-    ]
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Summary"
-    ws.append(fieldnames)
-    _style_header(ws)
-    ws.append(values)
-    _auto_width(ws)
-    wb.save(output_path)
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow({
+            "Dump":       dump_name,
+            "Timestamp":  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Total_PID":  total,
+            "Suspicious": suspicious,
+            "High":       high,
+            "Medium":     medium,
+            "Low":        low,
+            "Clean":      clean,
+            "Rule1_Hits": rule1_hits,
+            "Rule2_Hits": rule2_hits,
+            "Rule3_Hits": rule3_hits,
+            "Rule4_Hits": rule4_hits,
+        })
 
-    logger.info(f"summary.xlsx ditulis: {output_path.name}")
+    logger.info(f"summary.csv ditulis: {output_path.name}")
     return output_path
 
 

@@ -126,7 +126,7 @@ def run_analysis(
         # ── Step 3: Export CSV ─────────────────────────────────────────
         _notify("Mengekspor hasil ke CSV...")
         dump_name = Path(dump_path).name
-        exported  = export_all(classifications, plugin_results, dump_name, output_dir)
+        exported  = export_all(classifications, dump_name, output_dir)
 
         _notify(f"CSV tersimpan di: {output_dir}")
 
@@ -134,7 +134,6 @@ def run_analysis(
         result.update({
             "success":         True,
             "classifications": classifications,
-            "plugin_results":  plugin_results,
             "results_path":    exported["results_path"],
             "summary_path":    exported["summary_path"],
             "stats": {
