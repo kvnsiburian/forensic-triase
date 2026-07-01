@@ -3,7 +3,7 @@ analyzer.py
 ===========
 Modul evaluasi heuristik untuk Platform Triase Forensik Memori.
 
-Modul ini menerima hasil mentah dari runner.py (4 plugin Volatility3)
+Modul ini menerima hasil mentah dari runner.py (6 plugin Volatility3)
 dan mengevaluasi setiap PID unik melalui 4 pemeriksaan indikator anomali
 sesuai SANS Memory Forensics Methodology (proposal BAB III).
 
@@ -16,13 +16,20 @@ Alur kerja:
 Klasifikasi bersifat binary (proposal BAB III):
   - Sensitivitas diprioritaskan atas spesifisitas
   - Satu indikator cukup untuk flag SUSPICIOUS
-  - Tidak ada "medium" atau "low" — hanya CLEAN / SUSPICIOUS
+  - Tidak ada model skoring atau level risiko — hanya CLEAN / SUSPICIOUS
 
-4 Heuristic Rules (sesuai field names aktual dari Volatility3 2.28.1):
+4 Heuristic Rules (struktur final pasca revisi kategorisasi SANS):
   Rule 1: Identify Rogue Processes
     Source  : windows.pslist + windows.pstree
-    Fields  : ImageFileName, Path
-    Logic   : typosquatting nama proses sistem ATAU path eksekusi mencurigakan
+    Fields  : ImageFileName, Path, PPID
+    Logic   : (a) typosquatting nama proses sistem,
+              (b) path eksekusi mencurigakan,
+              (c) hubungan induk-anak menyimpang dari baseline Windows
+    Catatan : sub-pemeriksaan (c) sebelumnya keliru disebut "Rule 4 /
+              Analyze Process Objects". Setelah verifikasi ke poster resmi
+              SANS Memory Forensics Cheat Sheet (edisi Volatility3), pstree
+              terbukti termasuk kategori Identify Rogue Processes, sehingga
+              dipindahkan ke Rule 1.
 
   Rule 2: Review Network Artifacts
     Source  : windows.netscan
@@ -35,9 +42,17 @@ Klasifikasi bersifat binary (proposal BAB III):
     Logic   : PAGE_EXECUTE_READWRITE + PrivateMemory = 1
 
   Rule 4: Analyze Process Objects
-    Source  : windows.pstree (flattened)
-    Fields  : ImageFileName, PPID -> lookup ke ImageFileName parent
-    Logic   : parent-child menyimpang dari baseline Windows
+    Source  : windows.dlllist + windows.handles
+    Fields  : Path (dlllist); Type, Name, GrantedAccess (handles)
+    Logic   : (a) DLL dimuat dari path di luar direktori instalasi yang sah,
+              (b) akses antarproses mencurigakan terhadap proses LSASS
+    Catatan : ditambahkan atas persetujuan Pak Rahmat (WhatsApp, 30 Juni
+              2026), berdasar Q13 poin 3 dan poin 5 transkrip wawancara.
+              Nama kolom dlllist/handles dan format GrantedAccess sudah
+              DIVERIFIKASI terhadap output Volatility3 2.28.1 sesungguhnya
+              (dataset clean_baseline, 1 Juli 2026): dlllist -> Path, Name,
+              Process; handles -> Type, Name (format "lsass.exe Pid <PID>"),
+              GrantedAccess (integer desimal).
 
 Author  : Kevin Armando Siburian (2221101800)
 Program : Rekayasa Keamanan Siber - PSSN
@@ -45,57 +60,6 @@ Program : Rekayasa Keamanan Siber - PSSN
 
 import logging
 from typing import Optional
-
-# ---------------------------------------------------------------------------
-# Scoring Model — Risk Level Classification
-# ---------------------------------------------------------------------------
-# Bobot tiap rule berdasarkan tingkat keparahan indikator:
-#   Rule 1 & 3 = bobot 3 (indikator kuat: typosquatting, RWX injection)
-#   Rule 2 & 4 = bobot 2 (indikator sedang: network anomali, parent-child)
-#
-# Skor maksimum = 10 (semua rule terpenuhi)
-# Threshold:
-#   0        → CLEAN
-#   1–2      → LOW
-#   3–5      → MEDIUM
-#   6–10     → HIGH
-
-RULE_WEIGHTS = {
-    "rule1": 3,  # Identify Rogue Processes
-    "rule2": 2,  # Review Network Artifacts
-    "rule3": 3,  # Look for Evidence of Code Injection
-    "rule4": 2,  # Analyze Process Objects
-}
-
-RISK_THRESHOLDS = [
-    (6, "HIGH"),
-    (3, "MEDIUM"),
-    (1, "LOW"),
-    (0, "CLEAN"),
-]
-
-
-def compute_risk(r1: bool, r2: bool, r3: bool, r4: bool) -> "tuple[int, str]":
-    """
-    Hitung skor risiko berdasarkan rule yang terpenuhi.
-
-    Return
-    ------
-    (score: int, risk_level: str)
-        score      : akumulasi bobot rule yang terpenuhi (0–10)
-        risk_level : "CLEAN" | "LOW" | "MEDIUM" | "HIGH"
-    """
-    score = (
-        (RULE_WEIGHTS["rule1"] if r1 else 0) +
-        (RULE_WEIGHTS["rule2"] if r2 else 0) +
-        (RULE_WEIGHTS["rule3"] if r3 else 0) +
-        (RULE_WEIGHTS["rule4"] if r4 else 0)
-    )
-    for threshold, level in RISK_THRESHOLDS:
-        if score >= threshold:
-            return score, level
-    return 0, "CLEAN"
-
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +173,12 @@ LEGIT_NETWORK_PROCESSES = {
 
 
 # ---------------------------------------------------------------------------
-# Baseline Windows — Rule 4: Parent-Child Relationship
+# Baseline Windows — Rule 1 (sub-pemeriksaan c): Parent-Child Relationship
+# ---------------------------------------------------------------------------
+# Pemeriksaan ini sebelumnya disebut "Rule 4 / Analyze Process Objects".
+# Berdasarkan poster resmi SANS Memory Forensics Cheat Sheet (edisi
+# Volatility3), pstree termasuk kategori "Identify Rogue Processes",
+# sehingga pemeriksaan parent-child dipindahkan menjadi bagian dari Rule 1.
 # ---------------------------------------------------------------------------
 
 # Format: {nama_child: set of ALLOWED parent names}
@@ -283,6 +252,50 @@ SHELL_PROCESSES = {
 
 
 # ---------------------------------------------------------------------------
+# Baseline Windows — Rule 4: Analyze Process Objects (dlllist + handles)
+# ---------------------------------------------------------------------------
+# VERIFIED (1 Juli 2026, dataset clean_baseline vs Volatility3 2.28.1):
+# windows.dlllist -> kolom Path, Name, Process tersedia.
+# windows.handles -> kolom Type, Name, GrantedAccess tersedia; Name untuk
+# handle bertipe Process berformat "<ProcessName> Pid <PID>" (mis.
+# "lsass.exe Pid 688"); GrantedAccess berupa integer desimal (mis. 4138,
+# 2097151). Logika di bawah cocok dengan format nyata tersebut.
+# ---------------------------------------------------------------------------
+
+# Sub-pemeriksaan (a): DLL dari path mencurigakan
+# Menggunakan ulang LEGIT_PATH_PREFIXES dan SUSPICIOUS_PATH_KEYWORDS
+# yang sudah didefinisikan di atas untuk Rule 1, supaya logika "path sah"
+# konsisten di seluruh platform.
+
+# Sub-pemeriksaan (b): akses mencurigakan ke proses LSASS
+# Dasar teknis: teknik credential dumping (MITRE ATT&CK T1003.001 — OS
+# Credential Dumping: LSASS Memory) umumnya meminta hak akses yang
+# mencakup PROCESS_VM_READ (bit 0x0010) terhadap proses lsass.exe.
+# Ini adalah elaborasi teknis peneliti, BUKAN berasal dari transkrip
+# wawancara, dan harus ditulis sebagai demikian di dokumen.
+
+# Proses yang secara wajar memiliki handle/akses ke proses LSASS
+# (komponen inti sistem operasi dan layanan keamanan bawaan Windows)
+LEGIT_LSASS_ACCESSORS = {
+    "system",                        # proses kernel Windows, akses penuh ke semua proses
+    "wininit.exe",                  # parent dari lsass.exe
+    "services.exe",
+    "csrss.exe",
+    "lsass.exe",                    # proses itu sendiri
+    "lsaiso.exe",                   # Credential Guard isolated LSA
+    "msmpeng.exe",                  # Windows Defender
+    "nissrv.exe",                   # Windows Defender NIS
+    "securityhealthservice.exe",
+}
+
+# Bit PROCESS_VM_READ pada access mask Windows (0x0010).
+# Akses yang mengandung bit ini terhadap lsass.exe oleh proses di luar
+# LEGIT_LSASS_ACCESSORS mengindikasikan potensi pembacaan memori LSASS
+# untuk ekstraksi kredensial.
+PROCESS_VM_READ_BIT = 0x0010
+
+
+# ---------------------------------------------------------------------------
 # Helper: Flatten pstree (recursive)
 # ---------------------------------------------------------------------------
 
@@ -322,7 +335,7 @@ def flatten_pstree(pstree_records: list) -> list:
 
 def build_lookup_tables(plugin_results: dict) -> dict:
     """
-    Bangun lookup tables dari hasil 4 plugin untuk mempercepat evaluasi.
+    Bangun lookup tables dari hasil 6 plugin untuk mempercepat evaluasi.
 
     Return dict berisi:
         all_pids         : set semua PID unik dari semua plugin
@@ -332,11 +345,15 @@ def build_lookup_tables(plugin_results: dict) -> dict:
         pid_to_parent_name: dict PID -> nama ImageFileName parent-nya
         netscan_by_pid   : dict PID -> list record netscan
         malfind_by_pid   : dict PID -> list record malfind
+        dlllist_by_pid   : dict PID -> list record dlllist (DLL yang dimuat)
+        handles_by_pid   : dict PID -> list record handles (handle yang dipegang proses ini)
     """
     pslist  = plugin_results.get("windows.pslist") or []
     pstree  = plugin_results.get("windows.pstree") or []
     netscan = plugin_results.get("windows.netscan") or []
     malfind = plugin_results.get("windows.malware.malfind") or []
+    dlllist = plugin_results.get("windows.dlllist") or []
+    handles = plugin_results.get("windows.handles") or []
 
     # Flatten pstree
     pstree_flat = flatten_pstree(pstree)
@@ -381,12 +398,28 @@ def build_lookup_tables(plugin_results: dict) -> dict:
         if pid is not None:
             malfind_by_pid.setdefault(pid, []).append(rec)
 
+    # Build dlllist lookup: PID -> list of DLL records milik proses tsb
+    dlllist_by_pid = {}
+    for rec in dlllist:
+        pid = rec.get("PID")
+        if pid is not None:
+            dlllist_by_pid.setdefault(pid, []).append(rec)
+
+    # Build handles lookup: PID -> list of handle records yang dipegang proses tsb
+    handles_by_pid = {}
+    for rec in handles:
+        pid = rec.get("PID")
+        if pid is not None:
+            handles_by_pid.setdefault(pid, []).append(rec)
+
     # Kumpulkan semua PID unik dari semua plugin
     all_pids = (
         set(pslist_by_pid.keys())
         | set(pstree_by_pid.keys())
         | set(netscan_by_pid.keys())
         | set(malfind_by_pid.keys())
+        | set(dlllist_by_pid.keys())
+        | set(handles_by_pid.keys())
     )
 
     logger.info(f"Total PID unik ditemukan: {len(all_pids)}")
@@ -399,6 +432,8 @@ def build_lookup_tables(plugin_results: dict) -> dict:
         "pid_to_parent_name": pid_to_parent_name,
         "netscan_by_pid":     netscan_by_pid,
         "malfind_by_pid":     malfind_by_pid,
+        "dlllist_by_pid":     dlllist_by_pid,
+        "handles_by_pid":     handles_by_pid,
     }
 
 
@@ -425,7 +460,25 @@ def _edit_distance(s1: str, s2: str) -> int:
 def check_rogue_process(
     proc_name: str,
     proc_path: Optional[str],
+    pid: int,
+    pid_to_parent_name: dict,
+    pstree_by_pid: dict,
 ) -> tuple[bool, list[str]]:
+    """
+    Rule 1: Identify Rogue Processes.
+
+    Tiga sub-pemeriksaan dilakukan untuk mengidentifikasi proses yang
+    menyamar sebagai proses sistem Windows yang sah:
+      (a) typosquatting nama proses (kemiripan dengan proses sistem sah)
+      (b) path eksekusi mencurigakan
+      (c) hubungan induk-anak yang menyimpang dari baseline Windows
+          (sebelumnya disebut "Rule 4 / Analyze Process Objects";
+          dipindahkan ke sini setelah verifikasi ke poster resmi SANS)
+
+    Return
+    ------
+    (is_suspicious: bool, reasons: list[str])
+    """
     reasons = []
     name_lower = proc_name.lower()
 
@@ -461,6 +514,29 @@ def check_rogue_process(
                         f"mengandung '{keyword}'"
                     )
                     break
+
+    # (c) Parent-child relationship check
+    parent_name = pid_to_parent_name.get(pid)
+
+    if name_lower in NORMAL_PARENT_CHILD:
+        allowed_parents = NORMAL_PARENT_CHILD[name_lower]
+        if parent_name and parent_name not in allowed_parents:
+            reasons.append(
+                f"[Rule1] Parent abnormal: '{proc_name}' (PID={pid}) "
+                f"dijalankan oleh '{parent_name}', "
+                f"seharusnya oleh {allowed_parents}"
+            )
+
+    if name_lower in SUSPICIOUS_CHILD_SPAWNERS:
+        # Cari semua proses yang PPID-nya adalah PID ini
+        for child_pid, child_rec in pstree_by_pid.items():
+            if child_rec.get("PPID") == pid:
+                child_name = str(child_rec.get("ImageFileName", "")).lower()
+                if child_name in SHELL_PROCESSES:
+                    reasons.append(
+                        f"[Rule1] Spawn mencurigakan: '{proc_name}' (PID={pid}) "
+                        f"-> '{child_rec.get('ImageFileName')}' (PID={child_pid})"
+                    )
 
     return (len(reasons) > 0, reasons)
 
@@ -552,21 +628,30 @@ def check_code_injection(
 
 
 # ---------------------------------------------------------------------------
-# Rule 4: Analyze Process Objects
+# Rule 4: Analyze Process Objects (dlllist + handles)
 # ---------------------------------------------------------------------------
 
 def check_process_objects(
     proc_name: str,
-    pid: int,
-    pid_to_parent_name: dict,
-    pstree_by_pid: dict,
+    dlllist_records: list,
+    handles_records: list,
 ) -> tuple[bool, list[str]]:
     """
     Rule 4: Analyze Process Objects.
 
-    Dua kondisi yang diperiksa:
-    a. Proses memiliki parent yang tidak sesuai baseline NORMAL_PARENT_CHILD.
-    b. Proses dalam SUSPICIOUS_CHILD_SPAWNERS meng-spawn shell/interpreter.
+    Dua sub-pemeriksaan yang dilakukan:
+    a. DLL dimuat dari path di luar direktori instalasi yang sah
+       (menggunakan ulang LEGIT_PATH_PREFIXES dan SUSPICIOUS_PATH_KEYWORDS
+       dari Rule 1, supaya logika "path sah" konsisten).
+    b. Proses ini memegang handle ke lsass.exe dengan access mask yang
+       mengandung bit PROCESS_VM_READ, dan proses ini tidak termasuk
+       LEGIT_LSASS_ACCESSORS.
+
+    VERIFIED (1 Juli 2026): field "Path"/"Name" pada dlllist_records dan
+    "Type"/"Name"/"GrantedAccess" pada handles_records sudah dicocokkan
+    dengan output nyata Volatility3 2.28.1 (dataset clean_baseline) dan
+    sesuai. GrantedAccess integer desimal; Name handle Process berformat
+    "<ProcessName> Pid <PID>".
 
     Return
     ------
@@ -575,30 +660,58 @@ def check_process_objects(
     reasons = []
     name_lower = proc_name.lower()
 
-    # Ambil nama parent proses ini
-    parent_name = pid_to_parent_name.get(pid)
+    # (a) DLL dari path mencurigakan
+    for rec in dlllist_records:
+        dll_path = rec.get("Path")
+        if not dll_path or dll_path in ("None", ""):
+            continue
+        path_lower = str(dll_path).lower()
 
-    # (a) Cek apakah parent sesuai baseline
-    if name_lower in NORMAL_PARENT_CHILD:
-        allowed_parents = NORMAL_PARENT_CHILD[name_lower]
-        if parent_name and parent_name not in allowed_parents:
-            reasons.append(
-                f"[Rule4] Parent abnormal: '{proc_name}' (PID={pid}) "
-                f"dijalankan oleh '{parent_name}', "
-                f"seharusnya oleh {allowed_parents}"
+        is_legit_path = any(
+            path_lower.startswith(prefix) for prefix in LEGIT_PATH_PREFIXES
+        )
+        if is_legit_path:
+            continue
+
+        for keyword in SUSPICIOUS_PATH_KEYWORDS:
+            if keyword in path_lower:
+                dll_name = rec.get("Name", dll_path)
+                reasons.append(
+                    f"[Rule4] DLL path mencurigakan: '{proc_name}' memuat "
+                    f"'{dll_name}' dari '{dll_path}' (mengandung '{keyword}')"
+                )
+                break
+
+    # (b) Akses mencurigakan ke proses LSASS
+    if name_lower not in LEGIT_LSASS_ACCESSORS:
+        for rec in handles_records:
+            handle_type = str(rec.get("Type", "")).lower()
+            target_name = str(rec.get("Name", "")).lower()
+
+            if handle_type != "process" or "lsass.exe" not in target_name:
+                continue
+
+            granted_access = rec.get("GrantedAccess")
+            access_int = None
+            try:
+                if isinstance(granted_access, str) and granted_access.lower().startswith("0x"):
+                    access_int = int(granted_access, 16)
+                elif granted_access is not None:
+                    access_int = int(granted_access)
+            except (ValueError, TypeError):
+                access_int = None
+
+            has_vm_read = (
+                access_int is not None
+                and (access_int & PROCESS_VM_READ_BIT) != 0
             )
 
-    # (b) Cek apakah proses Office/browser meng-spawn shell
-    if name_lower in SUSPICIOUS_CHILD_SPAWNERS:
-        # Cari semua proses yang PPID-nya adalah PID ini
-        for child_pid, child_rec in pstree_by_pid.items():
-            if child_rec.get("PPID") == pid:
-                child_name = str(child_rec.get("ImageFileName", "")).lower()
-                if child_name in SHELL_PROCESSES:
-                    reasons.append(
-                        f"[Rule4] Spawn mencurigakan: '{proc_name}' (PID={pid}) "
-                        f"-> '{child_rec.get('ImageFileName')}' (PID={child_pid})"
-                    )
+            if has_vm_read:
+                reasons.append(
+                    f"[Rule4] Akses mencurigakan ke LSASS: '{proc_name}' "
+                    f"memegang handle ke '{target_name}' dengan "
+                    f"GrantedAccess={granted_access} (mengandung PROCESS_VM_READ)"
+                )
 
     return (len(reasons) > 0, reasons)
 
@@ -609,7 +722,7 @@ def check_process_objects(
 
 def classify_all(plugin_results: dict) -> list[dict]:
     """
-    Klasifikasikan semua PID dari hasil 4 plugin Volatility3.
+    Klasifikasikan semua PID dari hasil 6 plugin Volatility3.
 
     Parameter
     ---------
@@ -642,6 +755,8 @@ def classify_all(plugin_results: dict) -> list[dict]:
     pid_to_parent     = tables["pid_to_parent_name"]
     netscan_by_pid    = tables["netscan_by_pid"]
     malfind_by_pid    = tables["malfind_by_pid"]
+    dlllist_by_pid    = tables["dlllist_by_pid"]
+    handles_by_pid    = tables["handles_by_pid"]
 
     results = []
     suspicious_count = 0
@@ -666,7 +781,9 @@ def classify_all(plugin_results: dict) -> list[dict]:
             proc_path = None
 
         # --- Evaluasi 4 Rules ---
-        r1_hit, r1_reasons = check_rogue_process(proc_name, proc_path)
+        r1_hit, r1_reasons = check_rogue_process(
+            proc_name, proc_path, pid, pid_to_parent, pstree_by_pid
+        )
         r2_hit, r2_reasons = check_network_artifacts(
             proc_name, netscan_by_pid.get(pid, [])
         )
@@ -674,19 +791,17 @@ def classify_all(plugin_results: dict) -> list[dict]:
             proc_name, malfind_by_pid.get(pid, [])
         )
         r4_hit, r4_reasons = check_process_objects(
-            proc_name, pid, pid_to_parent, pstree_by_pid
+            proc_name, dlllist_by_pid.get(pid, []), handles_by_pid.get(pid, [])
         )
 
         all_reasons = r1_reasons + r2_reasons + r3_reasons + r4_reasons
         is_suspicious = r1_hit or r2_hit or r3_hit or r4_hit
-        score, risk = compute_risk(r1_hit, r2_hit, r3_hit, r4_hit)
 
         status = "SUSPICIOUS" if is_suspicious else "CLEAN"
         if is_suspicious:
             suspicious_count += 1
             logger.warning(
-                f"[{risk}] PID={pid} ({proc_name}) | "
-                f"Score={score} | "
+                f"[{status}] PID={pid} ({proc_name}) | "
                 f"R1={'Y' if r1_hit else 'N'} "
                 f"R2={'Y' if r2_hit else 'N'} "
                 f"R3={'Y' if r3_hit else 'N'} "
@@ -698,8 +813,6 @@ def classify_all(plugin_results: dict) -> list[dict]:
             "Name":      proc_name,
             "Path":      proc_path,
             "Status":    status,
-            "Score":     score,
-            "Risk":      risk,
             "Reasons":   all_reasons,
             "Rule1_hit": r1_hit,
             "Rule2_hit": r2_hit,
@@ -740,6 +853,8 @@ if __name__ == "__main__":
         "windows.pstree",
         "windows.netscan",
         "windows.malware.malfind",
+        "windows.dlllist",
+        "windows.handles",
     ]
 
     print("\n" + "=" * 60)
