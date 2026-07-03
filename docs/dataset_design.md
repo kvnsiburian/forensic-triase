@@ -45,7 +45,7 @@ setelah temuan empiris dari clean_baseline.
 |---|---|---|---|---|---|
 | 1 | `clean_baseline.raw` | — | — | — | Baseline berisik (level Sedang) |
 | 2 | `infected_r1a_masquerade.raw` | R1a | T1036.005 | #1 | Top 6 (T1036) |
-| 3 | `infected_r1b_parentchild.raw` | R1b | T1059.003 + .001 | #6 | #2 (T1059) |
+| 3 | `infected_r1b_parentchild.raw` | R1b | T1059.001 | #6 | #2 (T1059) |
 | 4 | `infected_r2_network.raw` | R2 | T1071.001 | #4 | #5 (T1071) |
 | 5 | `infected_r3_injection.raw` | R3 | T1055.001 | #2 | #1 (T1055) |
 | 6 | `infected_r4a_dll.raw` | R4a | T1574.001/002 | #3 | high-impact (Q13) |
@@ -141,26 +141,30 @@ _(Prosedur detail + expected output difinalkan sebelum eksekusi.)_
 
 ## 6. Dataset 3 — `infected_r1b_parentchild.raw`  [FINAL]
 
-**Rule primer:** R1b (parent-child abnormal). **MITRE:** T1059.003 (Windows
-Command Shell, relasi yang terdeteksi) + T1059.001 (PowerShell, cucu di rantai).
+**Rule primer:** R1b (parent-child abnormal). **MITRE:** T1059.001 — PowerShell.
 **Q13 poin 6** (aplikasi dokumen meluncurkan cmd/PowerShell).
 
 **Skenario (aktual):** dokumen/aplikasi kantor ber-makro men-spawn shell.
 Karena victim tak punya MS Office, dipakai **LibreOffice** (`soffice.bin` ∈
-`SUSPICIOUS_CHILD_SPAWNERS`). Makro LibreOffice Basic memanggil:
-`Shell("...\cmd.exe", 1, "/c powershell -nop -ep bypass -File C:\Users\Public\p.ps1", False)`.
-Rantai proses aktual: **`soffice.bin → cmd.exe → powershell.exe`**.
+`SUSPICIOUS_CHILD_SPAWNERS`). Makro LibreOffice Basic memanggil COM automation:
+`CreateObject("WScript.Shell").Run("powershell -nop -ep bypass -File C:\Users\Public\p.ps1", 1, False)`.
+Rantai proses aktual: **`soffice.bin → powershell.exe`** (langsung).
 
-**Catatan teknis (kenapa ada cmd.exe di tengah):** `Shell()` LibreOffice bisa
-meluncurkan proses (notepad OK) tapi oper argumen ke `powershell.exe` langsung
-tidak reliabel; lewat `cmd /c` argumen lolos bersih. Relasi yang **terdeteksi
-Rule 1b** = `soffice.bin → cmd.exe` (cmd.exe ∈ `SHELL_PROCESSES`) → T1059.003;
-`powershell.exe` adalah cucu (T1059.001). Dua interpreter hadir — justru lebih
-realistis (macro sering pakai perantara cmd/wscript).
+**Catatan teknis (kenapa WScript.Shell, bukan `Shell()`):** `Shell()` LibreOffice
+bisa meluncurkan proses tanpa argumen (notepad OK) & lewat `cmd /c` (OK), tapi
+**gagal meluncurkan `powershell.exe` langsung dengan argumen** — dibuktikan lewat
+tes terkontrol (dengan `p.ps1` sudah di disk, tetap tak ada proses/koneksi).
+`CreateObject("WScript.Shell")` di-load in-process ke `soffice.bin`, jadi `.Run`
+memanggil `CreateProcess` dari dalam soffice → `powershell.exe` jadi **anak
+langsung soffice.bin** (T1059.001 murni, tanpa perantara). Metode `cmd /c`
+sebelumnya juga valid (rantai `soffice.bin → cmd.exe → powershell.exe`,
+terdeteksi R1b via `soffice.bin → cmd.exe`) tapi versi langsung dipilih sebagai
+final karena cocok desain awal.
 
 **Payload:** `p.ps1` = **plain PowerShell TCP reverse shell** ke Kali
 `192.168.70.131:4444` (BUKAN meterpreter — `psh-reflection` gagal connect;
 reverse shell murni lebih andal & menjaga `powershell.exe` tetap hidup di loop).
+Sinyal sukses = koneksi masuk di listener nc, BUKAN GET (p.ps1 lokal di disk).
 Indikator R2/R3 muncul organik dari payload nyata (anti-circular-reasoning).
 
 **Environment aktual:** victim 192.168.70.130 (Win10 22H2 19045.2965), Kali
@@ -168,44 +172,86 @@ Indikator R2/R3 muncul organik dari payload nyata (anti-circular-reasoning).
 
 **Ground Truth (dikonfirmasi via reverse shell, `Get-CimInstance Win32_Process`):**
 - `soffice.bin` **PID 9140** (PPID 11232) — spawner
-- `cmd.exe` **PID 11200** (PPID 9140) — anak soffice.bin, target deteksi R1b
-- `powershell.exe` **PID 7456** (PPID 11200) — pemegang C2 reverse shell
-- (proses PowerShell manual liar PID 2556 ditutup sebelum dump → dataset bersih)
+- `powershell.exe` **PID 10120** (PPID 9140) — anak LANGSUNG soffice.bin, pemegang C2
+- (proses PowerShell manual liar PID 4740 di-`Stop-Process` sebelum dump → dataset bersih)
 
 **Hasil aktual analyzer (2 Juli 2026):**
-- Plugin: pslist 170, pstree 7, netscan 111, malfind 237, dlllist 8724, handles 60896 — semua sukses.
-- Total **170 PID | CLEAN 168 | SUSPICIOUS 2** | FP 0.
+- Plugin: pslist 168, pstree 8, netscan 107, malfind 245, dlllist 8353, handles 65137 — semua sukses.
+- Total **169 PID | CLEAN 167 | SUSPICIOUS 2** | FP 0.
 - **PID 9140 `soffice.bin` — R1=True (PRIMER):**
-  `[Rule1] Spawn mencurigakan: 'soffice.bin' (PID=9140) -> 'cmd.exe' (PID=11200)`
-- **PID 7456 `powershell.exe` — R2=True, R3=True (sekunder organik):**
+  `[Rule1] Spawn mencurigakan: 'soffice.bin' (PID=9140) -> 'powershell.exe' (PID=10120)`
+- **PID 10120 `powershell.exe` — R2=True, R3=True (sekunder organik):**
   `[Rule2]` C2 ke `192.168.70.131:4444` (TCPv4, ESTABLISHED) +
   `[Rule3]` RWX (PAGE_EXECUTE_READWRITE) + PrivateMemory (5 segmen, .NET/shellcode).
 
 **Verifikasi:**
 - ✅ Target primer R1b tercapai: `soffice.bin` PID 9140 flag Rule1 dengan reason
-  "Spawn mencurigakan", PID + anak (cmd.exe 11200) cocok persis ground truth.
-- ✅ Zero FP di 168 proses lain; hanya 2 SUSPICIOUS, keduanya bagian rantai yang
+  "Spawn mencurigakan", PID + anak LANGSUNG (powershell.exe 10120) cocok persis ground truth.
+- ✅ Zero FP di 167 proses lain; hanya 2 SUSPICIOUS, keduanya bagian rantai yang
   ditanam → tidak ada proses liar sisa troubleshooting.
-- ✅ Deteksi berlapis (R2/R3 pada powershell 7456) muncul organik dari reverse
+- ✅ Deteksi berlapis (R2/R3 pada powershell 10120) muncul organik dari reverse
   shell nyata, bukan ditanam.
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r1b_parentchild.raw`
+(versi langsung; versi cmd lama di-backup `infected_r1b_parentchild_cmd.raw` bila disimpan).
 
 ---
 
-## 7. Dataset 4 — `infected_r2_network.raw`  [KERANGKA]
+## 7. Dataset 4 — `infected_r2_network.raw`  [FINAL]
 
 **Rule primer:** R2 (network). **MITRE:** T1071.001 — Application Layer Protocol.
-**Q13 poin 4** (outbound ke IP publik, port tak umum).
+**Q13 poin 4** (outbound ke host lain, port tak umum). **Prevalensi:** Picus Red
+Report 2026 — T1071 #5 global.
 
-**Skenario:** proses non-whitelist dengan koneksi ESTABLISHED outbound ke
-listener Kali. Nama proses TIDAK boleh menyerupai proses di
-`LEGIT_NETWORK_PROCESSES`. Perhatikan netscan butuh `ForeignAddr` eksternal
-(bukan 0.0.0.0) & State ESTABLISHED saat capture.
+**Skenario (aktual):** implant **C2 framework Sliver** (Bishop Fox) — BUKAN
+meterpreter — dipilih justru karena implant Go native **tidak meninggalkan
+segmen RWX**, sehingga R2 dapat diuji **terisolasi murni** (R3 tidak ikut
+menyala). Implant mTLS di-generate di Kali, dijalankan di victim dengan tiga
+lapis penyamaran agar HANYA R2 yang relevan:
+- **Nama benign** `AtlasAgent.exe` (jauh dari nama proses sistem → R1a diam).
+- **Path sah** `C:\Program Files\AtlasSync\` (→ R1-path & R4a diam; modul EXE
+  utama tak kena keyword path — pelajaran dari temuan Dataset 2).
+- **Diluncurkan via double-click Explorer** → parent `explorer.exe` (→ R1b
+  parent-child diam).
+Tanpa post-exploitation apa pun (tidak `shell`/`execute`/`migrate`) supaya tak
+memunculkan RWX / proses anak yang merusak isolasi.
 
-**Ground Truth:** proses C2 = SUSPICIOUS (primer R2). Sisanya CLEAN.
+**Kenapa Sliver, bukan meterpreter:** meterpreter (reflective DLL) selalu
+meninggalkan RWX+PrivateMemory → R3 ikut menyala (terbukti Dataset 2 & 3).
+Implant Go Sliver memuat kode dari section `.text` image (RX, bukan RWX) → R3
+tidak menyala. Ini memungkinkan pembuktian **nilai deteksi mandiri R2**: ancaman
+C2 nyata kelas profesional yang LOLOS R1/R3/R4, tertangkap HANYA oleh R2.
 
-**Verifikasi:** Rule2_hit=True; catat ForeignAddr:Port.
+**Environment aktual:** victim 192.168.70.130 (Win10 22H2 19045.2965), Kali
+192.168.70.131, **host-only tanpa internet** (kritis: menghilangkan koneksi
+telemetri sah yang bisa memicu R2-FP seperti `PaintStudio.Vi` di Dataset 1 — di
+sini koneksi ESTABLISHED eksternal satu-satunya dijamin C2). VMnet host-only
+tanpa DHCP → IP di-set statis (`.131` via nmcli di Kali, `.130` via netsh di
+victim). Listener mTLS `:8443`. Capture 3 Juli 2026 via DumpIt selagi C2 aktif.
+Dump 5 GB.
 
-_(Difinalkan sebelum eksekusi. Perlu koneksi aktif saat DumpIt — timing.)_
+**Ground Truth (dikonfirmasi via `netstat -ano` + `tasklist` saat capture):**
+- `AtlasAgent.exe` **PID 8732** (PPID 6052 = `explorer.exe`) — implant C2
+- C2: `192.168.70.130:61575 → 192.168.70.131:8443` (TCPv4, ESTABLISHED)
+- Path: `C:\Program Files\AtlasSync\AtlasAgent.exe`
+
+**Hasil aktual analyzer (3 Juli 2026):**
+- Plugin: pslist 154, pstree 7, netscan 114, malfind 7, dlllist 7247, handles 54765 — semua sukses.
+- Total **154 PID | CLEAN 153 | SUSPICIOUS 1** | FP 0.
+- **PID 8732 `AtlasAgent.exe` — R2=True (PRIMER), R1=R3=R4=False:**
+  `[Rule2] Koneksi outbound abnormal: 'AtlasAgent.exe' -> 192.168.70.131:8443 (TCPv4, ESTABLISHED)`
+
+**Verifikasi (isolasi R2 tercapai — tanpa fallback):**
+- ✅ Target primer R2 tercapai; PID 8732 + ForeignAddr:Port cocok persis ground truth.
+- ✅ **R1=R3=R4=False** → membuktikan R2 menangkap ancaman yang rule lain lewatkan
+  (nilai deteksi mandiri). Gate R3 lolos: `AtlasAgent.exe` tak muncul di malfind
+  sama sekali (Sliver Go implant zero RWX) — bukan sekadar tersupresi whitelist.
+- ✅ malfind mengembalikan 7 record namun semuanya proses whitelist (`MsMpEng.exe`
+  ×6 Defender, `smartscreen.ex` ×1) ∈ `LEGIT_RWX_PROCESSES` → R3 tersupresi benar.
+- ✅ Zero FP di 153 proses lain (host-only → tanpa telemetri internet).
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r2_network.raw`.
+Hasil analyzer + JSON plugin: `results/r2_network/`.
 
 ---
 
