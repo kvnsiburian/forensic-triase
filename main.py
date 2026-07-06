@@ -17,6 +17,7 @@ Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -35,6 +36,7 @@ def run_analysis(
     dump_path: str,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     progress_callback: Optional[Callable[[str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> dict:
     """
     Jalankan pipeline analisis lengkap terhadap satu memory dump.
@@ -88,23 +90,21 @@ def run_analysis(
     }
 
     try:
-        # ── Step 1: Jalankan 4 plugin Volatility3 ──────────────────────
+        # ── Step 1: Jalankan 6 plugin Volatility3 ──────────────────────
         _notify("Memulai analisis...")
         _notify(f"File: {Path(dump_path).name}")
 
         runner = VolatilityRunner(dump_path=dump_path)
 
-        plugins = [
-            "windows.pslist",
-            "windows.pstree",
-            "windows.netscan",
-            "windows.malware.malfind",
-        ]
+        from core.runner import PLUGINS
 
         plugin_results = {}
-        for i, plugin in enumerate(plugins, start=1):
-            _notify(f"[{i}/4] Menjalankan {plugin}...")
+        for i, plugin in enumerate(PLUGINS, start=1):
+            _notify(f"[{i}/{len(PLUGINS)}] Menjalankan {plugin}...")
             plugin_results[plugin] = runner.run_plugin(plugin)
+            if cancel_event and cancel_event.is_set():
+                logger.info("Analisis dibatalkan oleh pengguna.")
+                return result
 
         # Cek apakah semua plugin berhasil
         failed = [p for p, data in plugin_results.items() if data is None]

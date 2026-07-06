@@ -143,6 +143,7 @@ class ForensicTriaseApp(tk.Tk):
         self._clean_var        = tk.StringVar(value="--")
         self._classifications  = []
         self._is_running       = False
+        self._cancel_event     = threading.Event()
         self._search_var       = tk.StringVar()
 
         self._build_ui()
@@ -227,6 +228,18 @@ class ForensicTriaseApp(tk.Tk):
             command=self._start_analysis,
         )
         self._btn_analyze.pack(side="left")
+
+        self._btn_cancel = tk.Button(
+            controls, text="  Batal",
+            font=FONT_NORMAL,
+            bg="#7f1d1d", fg="white",
+            activebackground="#991b1b",
+            relief="flat", padx=12, pady=4,
+            cursor="hand2",
+            state="disabled",
+            command=self._cancel_analysis,
+        )
+        self._btn_cancel.pack(side="left", padx=(8, 0))
 
         self._btn_export = tk.Button(
             controls, text="  Export Excel",
@@ -333,9 +346,14 @@ class ForensicTriaseApp(tk.Tk):
 
         columns = ("PID", "Name", "Path", "Status", "Score", "Risk",
                    "R1", "R2", "R3", "R4")
+        # Skor & Risiko di-hide dari display per arahan Pak Rahmat (3 Juni 2026):
+        # klasifikasi binary murni, scoring tetap di-compute internal tapi tidak ditampilkan.
+        displaycolumns = ("PID", "Name", "Path", "Status",
+                          "R1", "R2", "R3", "R4")
         self._tree = ttk.Treeview(
             tree_frame,
             columns=columns,
+            displaycolumns=displaycolumns,
             show="headings",
             selectmode="browse",
         )
@@ -444,6 +462,8 @@ class ForensicTriaseApp(tk.Tk):
         self._tree.tag_configure("medium", background=COLOR_BG_MEDIUM, foreground=COLOR_ORANGE)
         self._tree.tag_configure("low",    background=COLOR_BG_LOW,    foreground=COLOR_YELLOW)
         self._tree.tag_configure("clean",  background=COLOR_BG_CLEAN,  foreground=COLOR_GREEN)
+        # Tag binary baru per arahan Pak Rahmat (3 Juni 2026)
+        self._tree.tag_configure("suspicious", background=COLOR_BG_MEDIUM, foreground=COLOR_ORANGE)
 
         style.configure(
             "Dark.Horizontal.TProgressbar",
@@ -490,6 +510,7 @@ class ForensicTriaseApp(tk.Tk):
         if self._is_running:
             return
 
+        self._cancel_event.clear()
         self._clear_table()
         self._reset_stats()
         self._search_var.set("")
@@ -509,16 +530,31 @@ class ForensicTriaseApp(tk.Tk):
             result = run_analysis(
                 dump_path=dump,
                 progress_callback=self._on_progress,
+                cancel_event=self._cancel_event,
             )
-            self.after(0, self._on_analysis_done, result)
+            if not self._cancel_event.is_set():
+                self.after(0, self._on_analysis_done, result)
         except Exception as e:
-            self.after(0, self._on_analysis_error, str(e))
+            if not self._cancel_event.is_set():
+                self.after(0, self._on_analysis_error, str(e))
 
     def _on_progress(self, msg: str):
+        if self._cancel_event.is_set():
+            return
         self.after(0, self._set_status, msg)
-        m = re.search(r'\[(\d)/4\]', msg)
+        m = re.search(r'\[(\d+)/(\d+)\]', msg)
         if m:
-            self.after(0, self._progress.configure, {"value": int(m.group(1)) * 20})
+            self.after(0, self._progress.configure, {"value": round(int(m.group(1)) / int(m.group(2)) * 100)})
+
+    def _cancel_analysis(self):
+        if not self._is_running:
+            return
+        self._cancel_event.set()
+        self._clear_table()
+        self._reset_stats()
+        self._progress["value"] = 0
+        self._set_buttons_running(False)
+        self._set_status("Analisis dibatalkan.")
 
     def _on_analysis_done(self, result: dict):
         self._set_buttons_running(False)
@@ -606,7 +642,7 @@ class ForensicTriaseApp(tk.Tk):
             for key, flag, weight in rule_meta:
                 if flag:
                     lines = REKOMENDASI[key].split("\n")
-                    self._detail_text.insert("end", f"\n{lines[0]} (+{weight} poin)\n", "rekomendasi")
+                    self._detail_text.insert("end", f"\n{lines[0]}\n", "rekomendasi")
                     for line in lines[1:]:
                         self._detail_text.insert("end", f"{line}\n", "arrow_line")
                         # Rule 2: sisipkan IP spesifik setelah baris VirusTotal generik
@@ -644,7 +680,6 @@ class ForensicTriaseApp(tk.Tk):
             if query in str(r["Name"]).lower()
             or query in str(r.get("Path") or "").lower()
             or query in str(r["Status"]).lower()
-            or query in str(r.get("Risk") or "").lower()
         ]
         self._populate_table(filtered)
 
@@ -686,21 +721,34 @@ class ForensicTriaseApp(tk.Tk):
     def _populate_table(self, classifications: list):
         self._clear_table()
 
+        # Sort: jumlah rule terpicu (desc), lalu PID (asc).
+        # Penggunaan rule-count bukan score per arahan Pak Rahmat (3 Juni 2026).
         sorted_data = sorted(
             classifications,
-            key=lambda r: (-r.get("Score", 0), r["PID"]),
+            key=lambda r: (
+                -sum([
+                    bool(r.get("Rule1_hit")),
+                    bool(r.get("Rule2_hit")),
+                    bool(r.get("Rule3_hit")),
+                    bool(r.get("Rule4_hit")),
+                ]),
+                r["PID"],
+            ),
         )
 
         for rec in sorted_data:
-            risk   = rec.get("Risk", "CLEAN")
-            tag    = risk.lower()
+            status = rec["Status"]
+            # Tag binary: suspicious atau clean (tidak lagi pakai HIGH/MEDIUM/LOW)
+            tag    = "suspicious" if status == "SUSPICIOUS" else "clean"
             r1     = "\u2714" if rec["Rule1_hit"] else "\u00b7"
             r2     = "\u2714" if rec["Rule2_hit"] else "\u00b7"
             r3     = "\u2714" if rec["Rule3_hit"] else "\u00b7"
             r4     = "\u2714" if rec["Rule4_hit"] else "\u00b7"
             path   = rec["Path"] or "--"
+            # Score & Risk masih disertakan di values untuk menjaga struktur kolom,
+            # tapi kolomnya di-hide via displaycolumns (tidak tampil ke user).
             score  = rec.get("Score", 0)
-            status = rec["Status"]
+            risk   = rec.get("Risk", "CLEAN")
 
             self._tree.insert(
                 "", "end",
@@ -735,6 +783,7 @@ class ForensicTriaseApp(tk.Tk):
         self._btn_analyze.configure(state=state_analyze)
         self._btn_browse.configure(state=state_browse)
         self._btn_export.configure(state=state_export)
+        self._btn_cancel.configure(state="normal" if running else "disabled")
 
         if running:
             self._btn_analyze.configure(text="  Menganalisis...")
