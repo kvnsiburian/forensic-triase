@@ -109,10 +109,13 @@ REKOMENDASI = {
     ),
     "Rule4": (
         "Rule 4 -- Analyze Process Objects\n"
-        "   -> Verifikasi rantai proses dengan windows.pstree\n"
-        "   -> Periksa command line argument dengan windows.cmdline\n"
-        "   -> Bandingkan dengan baseline parent-child Windows yang normal\n"
-        "   -> Investigasi proses parent -- apakah parent juga mencurigakan?"
+        "   -> Lihat kolom Reasons: nama dan path DLL mencurigakan atau handle ke LSASS\n"
+        "   -> Jika DLL mencurigakan: hash file tersebut dan verifikasi di VirusTotal\n"
+        "   -> Periksa apakah DLL bertanda tangan sah (Get-AuthenticodeSignature)\n"
+        "   -> Baca output windows.dlllist di tab detail untuk melihat seluruh DLL yang dimuat proses ini\n"
+        "   -> Jika ada akses ke LSASS: indikasi credential dumping (MITRE ATT&CK T1003.001)\n"
+        "   -> Periksa apakah ProcDump / Mimikatz atau alat serupa sedang berjalan\n"
+        "   -> Gunakan windows.handles untuk memeriksa semua handle antarproses secara lengkap"
     ),
 }
 
