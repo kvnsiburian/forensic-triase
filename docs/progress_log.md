@@ -269,10 +269,73 @@ hasil: `results/r3_injection/`
 
 ---
 
-## Dataset 6–7 — ⏳ BELUM
+## Dataset 6 — `infected_r4a_dll` — ✅ SELESAI
+
+**Target:** Rule 4a (DLL dimuat dari path di luar direktori sah)
+**MITRE:** T1574.001/002 (DLL Search-Order Hijacking / Side-Loading); mekanisme muat T1218.011 (rundll32)
+**Q13:** poin 3 (DLL dari path tidak wajar / library injection)
+**Prevalensi:** Picus Red Report 2026 — T1574 Hijack Execution Flow, high-impact.
+
+**Nilai untuk sidang:** melengkapi R1–R3. Artefak "modul termuat dari direktori
+writable" dipisahkan tegas dari anomali path-EXE (R1). Loader = `rundll32.exe`
+**sah** (System32, induk `cmd.exe`) → LOLOS R1; DLL **benign** (tanpa
+RWX/jaringan/LSASS) → LOLOS R2/R3/R4b; tertangkap **HANYA oleh R4a** lewat
+`dlllist`. Memenuhi catatan desain: R4a WAJIB diuji via DLL sideload terpisah,
+bukan EXE utama.
+
+**Tool:** DLL benign C di-cross-compile di Kali (`x86_64-w64-mingw32-gcc -shared`,
+64-bit) — hanya `MessageBox` (menahan `rundll32` resident, tanpa shellcode).
+Dimuat via LOLBin `rundll32.exe`. Tak butuh Metasploit; Defender boleh ON.
+
+**Prosedur (SELESAI dieksekusi):**
+1. Restore snapshot bersih (host-only, victim IP statis `.130`), Defender **ON**.
+2. Kali: buat `evil.c` (export `Run` → `MessageBoxA`) → `x86_64-w64-mingw32-gcc
+   -shared -o evil.dll evil.c -luser32` → `python3 -m http.server 8000`.
+3. Victim: unduh ke `C:\Users\Public\evil.dll` (`Invoke-WebRequest` + `Unblock-File`).
+4. Victim: `rundll32.exe C:\Users\Public\evil.dll,Run` → MessageBox muncul,
+   dibiarkan terbuka (rundll32 tetap hidup, evil.dll termuat).
+5. Victim: catat ground truth — `tasklist`/`wmic` → rundll32 PID 8392, PPID 1820
+   (`cmd.exe`), CommandLine memuat `evil.dll,Run`.
+6. Victim: DumpIt (Administrator) selagi MessageBox terbuka → `infected_r4a_dll.raw` (5 GB).
+
+**Ground Truth (dikonfirmasi via `tasklist`/`wmic`):**
+- Proses pemuat: **`rundll32.exe` PID 8392** (PPID 1820 = `cmd.exe`) — LOLBin sah
+- Modul jahat: **`evil.dll` @ `C:\Users\Public\evil.dll`**
+- Tanpa C2, tanpa RWX pada rundll32, tanpa handle LSASS
+
+**Hasil analyzer (6 Juli 2026):**
+| Metrik | Nilai |
+|---|---|
+| Plugin | pslist 159, pstree 11, netscan 96, malfind 17, dlllist 8629, handles 61105 |
+| Total proses | 160 PID |
+| CLEAN | 159 |
+| SUSPICIOUS | 1 |
+| False Positive | 0 |
+
+- **PID 8392 `rundll32.exe` — R4a=True (PRIMER), R1=R2=R3=False:** `[Rule4] DLL
+  path mencurigakan: 'rundll32.exe' memuat 'evil.dll' dari 'C:\Users\Public\evil.dll'
+  (mengandung '\users\public\')`
+
+**Verifikasi:**
+- ✅ Target primer R4a tercapai; PID 8392 + modul `evil.dll` cocok ground truth.
+- ✅ **Isolasi R4a sempurna (R1=R2=R3=False)** — rundll32 sah (nama/path/induk) →
+  R1 diam; tak ada koneksi → R2 diam; DLL benign → R3 diam.
+- ✅ malfind 17 record, SEMUA whitelist (`MsMpEng.exe` ×14, `SearchApp.exe` ×2,
+  `smartscreen.ex` ×1 ∈ `LEGIT_RWX_PROCESSES`) → 0 FP.
+
+**Catatan (temuan spesifisitas, capture #1):** capture pertama meninggalkan jendela
+PowerShell unduhan (PID 9496) terbuka → CLR .NET JIT/AMSI membuat RWX benign → R3
+false positive (`powershell.exe` sengaja tak di-whitelist). Capture diulang setelah
+menutup PowerShell → FP hilang. Relevan untuk Bab Keterbatasan.
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r4a_dll.raw` |
+hasil: `results/r4a_dll/`
+
+---
+
+## Dataset 7 — ⏳ BELUM
 | # | Dataset | Rule | MITRE | Q13 |
 |---|---|---|---|---|
-| 6 | infected_r4a_dll | R4a | T1574.001/002 | poin 3 |
 | 7 | infected_r4b_lsass | R4b | T1003.001 | poin 5 |
 
 ## Kategori B — ⏳ BELUM

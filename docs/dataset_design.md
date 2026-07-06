@@ -315,22 +315,70 @@ Hasil analyzer + JSON plugin: `results/r3_injection/`.
 
 ---
 
-## 9. Dataset 6 — `infected_r4a_dll.raw`  [KERANGKA]
+## 9. Dataset 6 — `infected_r4a_dll.raw`  [FINAL]
 
 **Rule primer:** R4a (DLL path). **MITRE:** T1574.001/002 — DLL Search-Order
-Hijacking / Side-Loading. **Q13 poin 3** (DLL dari path mencurigakan).
+Hijacking / Side-Loading (mekanisme muat via T1218.011 — rundll32, LOLBin).
+**Q13 poin 3** (DLL dimuat dari path tidak wajar / library injection).
+**Prevalensi:** Picus Red Report 2026 — T1574 Hijack Execution Flow, high-impact.
 
-**Skenario:** DLL berbahaya/proof ditempatkan di path mencurigakan (mis.
-`C:\Users\Public\` atau `\Temp\`) lalu dimuat oleh sebuah proses (mis. via
-side-loading atau `rundll32`). Harus muncul entri `windows.dlllist` dengan
-`Path` di direktori ber-keyword.
+**Skenario (aktual):** sebuah **DLL benign** (`evil.dll`) ditanam di direktori
+user-writable `C:\Users\Public\` lalu dimuat oleh **`rundll32.exe`** — binary
+Windows asli bertanda-tangan dari `C:\Windows\System32`. Artefak forensiknya:
+`windows.dlllist` untuk PID `rundll32` memuat modul `evil.dll` ber-`Path`
+`C:\Users\Public\evil.dll` (mengandung keyword `\users\public\`) → R4a menyala.
+Isolasi R4a murni dicapai dengan memisahkan **loader** dari **DLL**:
+- **Loader = LOLBin sah** `rundll32.exe` jalan dari path sah `C:\Windows\System32\`
+  → R1-path & R1-typosquat diam; induk `cmd.exe` (bukan `SUSPICIOUS_CHILD_SPAWNER`)
+  → R1-parent diam. Memenuhi catatan desain (progress_log): R4a WAJIB diuji lewat
+  **DLL sideload terpisah**, BUKAN EXE utama (yang akan memicu R1-path + R4a redundan).
+- **DLL benign** (hanya `MessageBox`, tanpa shellcode/RWX/jaringan/akses LSASS) →
+  R2/R3/R4b semua diam. Karena benign, **Defender boleh tetap ON** (beda dari
+  Dataset 4 & 5) — teknik ini justru lebih senyap.
 
-**Ground Truth:** proses pemuat = SUSPICIOUS (primer R4a). Sisanya CLEAN.
+**Kenapa rundll32 (bukan side-loading klasik):** side-loading klasik menaruh EXE
+sah + DLL jahat di folder writable yang sama → EXE-nya sendiri ber-path
+mencurigakan → R1-path ikut menyala (redundan). Memakai `rundll32` sebagai loader
+dari System32 membuat HANYA modul DLL yang ber-path mencurigakan → R4a teruji
+independen. Artefak memori (modul termuat dari direktori writable) identik dengan
+DLL side-loaded nyata.
 
-**Verifikasi:** Rule4_hit=True dengan reason "DLL path mencurigakan".
-Lingkup: hanya anomali path (lihat Batasan Masalah §12).
+**Environment aktual:** victim 192.168.70.130 (Win10 22H2 19045.2965), Kali
+192.168.70.131, host-only tanpa internet, IP statis. **Defender Real-time
+protection ON** (DLL benign, tak kena signature). `evil.dll` di-cross-compile di
+Kali (`x86_64-w64-mingw32-gcc -shared`, 64-bit) lalu diunduh ke
+`C:\Users\Public\`; dimuat via `rundll32.exe C:\Users\Public\evil.dll,Run`
+(MessageBox menahan proses resident selama DumpIt). Capture 6 Juli 2026. Dump 5 GB.
 
-_(Difinalkan sebelum eksekusi.)_
+**Ground Truth (dikonfirmasi via `tasklist`/`wmic`):**
+- Proses pemuat: **`rundll32.exe` PID 8392** (PPID 1820 = `cmd.exe`) — LOLBin sah
+- Modul jahat: `evil.dll` @ `C:\Users\Public\evil.dll`
+- Tanpa C2, tanpa RWX pada rundll32, tanpa handle LSASS
+
+**Hasil aktual analyzer (6 Juli 2026):**
+- Plugin: pslist 159, pstree 11, netscan 96, malfind 17, dlllist 8629, handles 61105 — semua sukses.
+- Total **160 PID | CLEAN 159 | SUSPICIOUS 1** | FP 0.
+- **PID 8392 `rundll32.exe` — R4a=True (PRIMER), R1=R2=R3=False:**
+  `[Rule4] DLL path mencurigakan: 'rundll32.exe' memuat 'evil.dll' dari 'C:\Users\Public\evil.dll' (mengandung '\users\public\')`
+
+**Verifikasi (isolasi R4a tercapai):**
+- ✅ Target primer R4a tercapai; PID 8392 + modul `evil.dll` cocok ground truth.
+- ✅ **R1=R2=R3=False** → membuktikan R4a menangkap ancaman yang rule lain
+  lewatkan: DLL dari path writable pada proses sistem sah hanya terbongkar lewat
+  enumerasi modul (`dlllist`), bukan anomali proses/jaringan/injeksi.
+- ✅ malfind 17 record SEMUA proses whitelist (`MsMpEng.exe` ×14, `SearchApp.exe`
+  ×2, `smartscreen.ex` ×1 ∈ `LEGIT_RWX_PROCESSES`) → R3 tak menyala, 0 FP.
+
+**Catatan spesifisitas (temuan capture pertama):** capture awal meninggalkan
+jendela **PowerShell unduhan** (PID 9496, `Invoke-WebRequest`) tetap terbuka; CLR
+.NET JIT/AMSI PowerShell membuat segmen RWX benign → **R3 false positive**.
+`powershell.exe` sengaja TIDAK di-`LEGIT_RWX_PROCESSES` (target injeksi favorit
+malware). Capture diulang setelah menutup PowerShell → FP hilang, isolasi murni.
+Temuan ini relevan untuk Bab Keterbatasan/Spesifisitas (Rule 3 sensitif → potensi
+FP pada PowerShell sah).
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r4a_dll.raw`.
+Hasil analyzer + JSON plugin: `results/r4a_dll/`.
 
 ---
 
