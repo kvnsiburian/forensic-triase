@@ -382,26 +382,36 @@ Hasil analyzer + JSON plugin: `results/r4a_dll/`.
 
 ---
 
-## 10. Dataset 7 — `infected_r4b_lsass.raw`  [KERANGKA]
+## 10. Dataset 7 — `infected_r4b_lsass.raw`  [FINAL ✅]
 
 **Rule primer:** R4b (akses LSASS). **MITRE:** T1003.001 — OS Credential
 Dumping: LSASS Memory. **Q13 poin 5** (dump LSASS, Mimikatz dsb).
 
-**Skenario:** `procdump.exe -ma lsass.exe` (atau `comsvcs.dll MiniDump` /
-Mimikatz). Proses dumper memegang handle ke `lsass.exe` dengan bit
-`PROCESS_VM_READ` (0x0010). **Timing kritis:** akuisisi memori dilakukan
-SELAGI handle masih aktif (sebelum dumper exit).
+**Skenario (dieksekusi):** **Mimikatz** interaktif — `privilege::debug` →
+`sekurlsa::logonpasswords`. Dipilih di atas `procdump`/`comsvcs.dll` karena
+**keandalan timing**: mimikatz menahan handle LSASS terbuka di prompt interaktif,
+sedangkan procdump/comsvcs menutup handle ~2 dtk → tak andal ditangkap DumpIt.
+mimikatz ditaruh di `C:\Program Files\Mimikatz\` (path **sah**) agar R1/R4a diam →
+R4b teruji independen. Akuisisi DumpIt dilakukan SELAGI prompt mimikatz aktif.
 
-**Ground Truth:** `procdump.exe` (atau dumper) = SUSPICIOUS (primer R4b).
-Sisanya CLEAN.
+**Ground Truth (dikonfirmasi `tasklist`):** `mimikatz.exe` **PID 8** memegang
+handle ke `lsass.exe` **PID 688** = SUSPICIOUS (primer R4b). Sisanya CLEAN.
+MD5 dump = `ee8190f721fb8602933694cd01572c71`.
 
-**Verifikasi (rangkap):**
-- Rule4_hit=True dengan reason "Akses mencurigakan ke LSASS".
-- **Sekaligus verifikasi `TODO VERIFIKASI`:** cocokkan kolom `Type`, `Name`
-  (format `lsass.exe Pid <PID>`), `GrantedAccess` (integer desimal) pada output
-  `windows.handles` Volatility3 2.28.1 nyata. Jika cocok → hapus TODO di kode.
+**Hasil (6 Juli 2026):** TOTAL 158 | CLEAN 157 | SUSPICIOUS 1 | FP **0**.
+PID 8 `mimikatz.exe` → **R4b=True**, R1=R2=R3=False. `GrantedAccess=4112 (0x1010)`,
+`0x1010 & 0x0010 = 0x0010 ≠ 0` → PROCESS_VM_READ terkonfirmasi.
 
-_(Difinalkan sebelum eksekusi.)_
+**Verifikasi (rangkap) — TERPENUHI:**
+- ✅ Rule4_hit=True dengan reason "Akses mencurigakan ke LSASS", target `lsass.exe pid 688`.
+- ✅ **Isolasi:** R1=R2=R3=R4a=False (path `C:\Program Files\` sah).
+- ✅ **Zero-FP:** 14 handle Process→`lsass.exe Pid 688`; `System`/`csrss.exe`
+  (full-access `0x1fffff`)/`lsass.exe`-self semua ∈ `LEGIT_LSASS_ACCESSORS` → ditekan,
+  hanya `mimikatz.exe` lolos. Membuktikan whitelist esensial pada data nyata.
+- ✅ **`TODO VERIFIKASI` DITUTUP:** format nyata `windows.handles` v2.28.1 dikonfirmasi —
+  `Type="Process"`, `Name="lsass.exe Pid <PID>"`, `GrantedAccess` = integer desimal.
+
+_(Detail lengkap: `docs/progress_log.md` § Dataset 7.)_
 
 ---
 

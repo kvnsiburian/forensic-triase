@@ -260,6 +260,10 @@ SHELL_PROCESSES = {
 # handle bertipe Process berformat "<ProcessName> Pid <PID>" (mis.
 # "lsass.exe Pid 688"); GrantedAccess berupa integer desimal (mis. 4138,
 # 2097151). Logika di bawah cocok dengan format nyata tersebut.
+# RE-VERIFIED (6 Juli 2026, dataset infected_r4b_lsass — kasus akses jahat
+# nyata): mimikatz.exe (PID 8) memegang handle Process ke "lsass.exe Pid 688"
+# dengan GrantedAccess=4112 (0x1010); sub-cek (b) menyala tepat, sementara
+# System/csrss.exe/lsass-self ditekan LEGIT_LSASS_ACCESSORS (0 FP).
 # ---------------------------------------------------------------------------
 
 # Sub-pemeriksaan (a): DLL dari path mencurigakan

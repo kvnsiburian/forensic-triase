@@ -333,10 +333,69 @@ hasil: `results/r4a_dll/`
 
 ---
 
-## Dataset 7 — ⏳ BELUM
-| # | Dataset | Rule | MITRE | Q13 |
-|---|---|---|---|---|
-| 7 | infected_r4b_lsass | R4b | T1003.001 | poin 5 |
+## Dataset 7 — `infected_r4b_lsass` — ✅ SELESAI
+
+**Target:** Rule 4b (proses non-sah memegang handle ke `lsass.exe` dengan bit `PROCESS_VM_READ`)
+**MITRE:** T1003.001 (OS Credential Dumping: LSASS Memory)
+**Q13:** poin 5 (akses/pembacaan memori LSASS untuk kredensial)
+**Prevalensi:** Picus Red Report 2026 — credential access LSASS termasuk teknik teratas.
+
+**Nilai untuk sidang:** melengkapi matriks R1–R4 (R4b = pilar terakhir). Menguji jalur
+deteksi berbasis **object handle** (`windows.handles`), berbeda dari jalur DLL (R4a).
+Membuktikan whitelist `LEGIT_LSASS_ACCESSORS` esensial: pada data nyata, `System`,
+`csrss.exe`, dan `lsass.exe` sendiri **sah** memegang handle VM_READ (bahkan full-access
+`0x1fffff`) — whitelist menekan ketiganya → hanya pengakses non-sah (mimikatz) menyala.
+
+**Tool:** **Mimikatz** interaktif (`privilege::debug` → `sekurlsa::logonpasswords`).
+Dipilih karena **keandalan timing**: mimikatz menahan handle LSASS terbuka di prompt
+interaktif, sehingga pasti tertangkap dalam jendela akuisisi DumpIt (procdump/comsvcs
+menutup handle dalam ~2 dtk → tak andal). Ditempatkan di `C:\Program Files\Mimikatz\`
+(prefix path **sah**) agar R1/R4a diam → R4b teruji **independen**.
+
+**Prosedur (SELESAI dieksekusi):**
+1. Restore snapshot bersih (host-only, victim IP statis `.130`).
+2. Salin `mimikatz.exe` ke `C:\Program Files\Mimikatz\` (path sah).
+3. Jalankan mimikatz (Administrator): `privilege::debug` → OK; `sekurlsa::logonpasswords`
+   → kredensial ter-dump (**bukti hidup** handle LSASS terbuka), prompt dibiarkan aktif.
+4. Victim: catat ground truth — `tasklist` → `mimikatz.exe` PID 8, `lsass.exe` PID 688.
+5. Victim: DumpIt (Administrator) selagi prompt mimikatz aktif → `infected_r4b_lsass.raw` (5 GB).
+
+**Ground Truth (dikonfirmasi via `tasklist`):**
+- Pengakses jahat: **`mimikatz.exe` PID 8** @ `C:\Program Files\Mimikatz\mimikatz.exe`
+- Target: **`lsass.exe` PID 688**
+- Tanpa C2, tanpa RWX injection, tanpa DLL path mencurigakan
+
+**Integritas:** MD5 dump = `ee8190f721fb8602933694cd01572c71`
+
+**Hasil analyzer (6 Juli 2026):**
+| Metrik | Nilai |
+|---|---|
+| Plugin | pslist 158, pstree 11, netscan 92, malfind 16, dlllist 8463, handles 62358 |
+| Total proses | 158 PID |
+| CLEAN | 157 |
+| SUSPICIOUS | 1 |
+| False Positive | 0 |
+
+- **PID 8 `mimikatz.exe` — R4b=True (PRIMER), R1=R2=R3=False:** `[Rule4] Akses
+  mencurigakan ke LSASS: 'mimikatz.exe' memegang handle ke 'lsass.exe pid 688' dengan
+  GrantedAccess=4112 (mengandung PROCESS_VM_READ)`
+
+**Verifikasi:**
+- ✅ Target primer R4b tercapai; PID 8 + target `lsass.exe` PID 688 cocok ground truth.
+- ✅ **Bukti manual bit:** `GrantedAccess=4112 = 0x1010` → `0x1010 & 0x0010 (PROCESS_VM_READ)
+  = 0x0010 ≠ 0` → TRUE. (0x1010 = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ.)
+- ✅ **Isolasi R4b sempurna (R1=R2=R3=False)** — path `C:\Program Files\` sah → R1/R4a
+  diam; tak ada koneksi → R2 diam; tanpa RWX → R3 diam.
+- ✅ **Zero-FP tervalidasi:** 14 handle Process→`lsass.exe Pid 688` total — `System`
+  (PID 4, ×7), `csrss.exe` (PID 436, full-access `0x1fffff`), `lsass.exe` self (PID 688,
+  ×5) semua ∈ `LEGIT_LSASS_ACCESSORS` → ditekan; hanya `mimikatz.exe` (PID 8) lolos filter.
+- ✅ **TODO VERIFIKASI ditutup** — format nyata kolom `windows.handles`: `Type="Process"`,
+  `Name="lsass.exe Pid 688"` (pola `"<nama> Pid <pid>"`), `GrantedAccess` = int desimal.
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r4b_lsass.raw` |
+hasil: `results/r4b_lsass/`
+
+---
 
 ## Kategori B — ⏳ BELUM
 - +1 dataset malware asli (MalwareBazaar/theZoo) di VM host-only isolated — ecological validity.
