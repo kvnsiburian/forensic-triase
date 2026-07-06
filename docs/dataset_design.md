@@ -255,20 +255,63 @@ Hasil analyzer + JSON plugin: `results/r2_network/`.
 
 ---
 
-## 8. Dataset 5 — `infected_r3_injection.raw`  [KERANGKA]
+## 8. Dataset 5 — `infected_r3_injection.raw`  [FINAL]
 
-**Rule primer:** R3 (code injection). **MITRE:** T1055.001 — DLL / reflective
-injection. **Q13 poin 2** (proses legit disusupi kode).
+**Rule primer:** R3 (code injection). **MITRE:** T1055.001 — Process Injection:
+DLL / Reflective DLL Injection. **Q13 poin 2** (proses legit disusupi kode asing).
+**Prevalensi:** Picus Red Report 2026 — T1055 #1 global.
 
-**Skenario:** injeksi meterpreter ke proses legit (mis. `migrate` ke
-`notepad.exe`), meninggalkan segmen `PAGE_EXECUTE_READWRITE` + `PrivateMemory=1`
-yang terdeteksi `malfind`. Proses target TIDAK boleh ada di `LEGIT_RWX_PROCESSES`.
+**Skenario (aktual):** kode **meterpreter reflective DLL** disuntik ke proses
+**sah** `notepad.exe` lewat teknik `migrate`, meninggalkan segmen
+`PAGE_EXECUTE_READWRITE` + `PrivateMemory=1` yang tertangkap `malfind`. Ini
+KEBALIKAN Dataset 4: di sini artefak RWX-nya yang justru diuji. Tiga lapis agar
+HANYA R3 yang relevan (isolasi R3 murni):
+- **Proses target sah** `notepad.exe` — nama asli, path asli
+  `C:\Windows\System32\notepad.exe`, dibuka manual via Explorer (parent
+  `explorer.exe`) → R1a/R1-path/R1b diam. `notepad.exe` TIDAK ada di
+  `LEGIT_RWX_PROCESSES` → R3 tetap menyala.
+- **Koneksi C2 disenyapkan** sebelum capture via meterpreter `sleep 300` (socket
+  ditutup, kode tetap resident) → netscan tak punya ESTABLISHED ke Kali → R2 diam.
+- **Stager dibersihkan** — proses payload `AtlasHelper.exe` mati otomatis saat
+  `migrate` → tak ada proses tambahan ber-path `\Temp\` yang memicu R1/R4.
 
-**Ground Truth:** proses yang disuntik = SUSPICIOUS (primer R3). Sisanya CLEAN.
+**Kenapa meterpreter (kebalikan Dataset 4):** reflective DLL meterpreter SELALU
+meninggalkan RWX+PrivateMemory — justru inilah artefak target uji R3. Dataset 4
+(Sliver, zero RWX) membuktikan "C2 tanpa injeksi"; Dataset 5 membuktikan
+pelengkapnya: "injeksi tanpa C2 aktif", tertangkap HANYA oleh R3.
 
-**Verifikasi:** Rule3_hit=True; catat alamat segmen RWX.
+**Environment aktual:** victim 192.168.70.130 (Win10 22H2 19045.2965), Kali
+192.168.70.131, host-only tanpa internet, IP statis (nmcli/netsh). Defender
+Real-time protection OFF (meterpreter mentah kena signature → `certutil` gagal
+"Access is denied" saat Defender ON; sah sebagai prasyarat lab, setara MITRE
+T1562.001 Impair Defenses; MsMpEng.exe tetap berjalan). Handler `multi/handler`
+reverse_tcp `:4444`. Capture 5 Juli 2026 via DumpIt dalam jendela `sleep` (tanpa
+ESTABLISHED). Dump 5 GB.
 
-_(Difinalkan sebelum eksekusi.)_
+**Ground Truth (dikonfirmasi via meterpreter):**
+- `notepad.exe` **PID 3404** (PPID 4944 = `explorer.exe`) — proses sah tersuntik
+- 2 segmen RWX sisa reflective loader @ `0x22319910000` & `0x22319950000`
+- Stager `AtlasHelper.exe` PID 8712 sudah mati saat `migrate` (tanpa noise)
+
+**Hasil aktual analyzer (5 Juli 2026):**
+- Plugin: pslist 147, pstree 5, netscan 53, malfind 20, dlllist 7473, handles 52206 — semua sukses.
+- Total **147 PID | CLEAN 146 | SUSPICIOUS 1** | FP 0.
+- **PID 3404 `notepad.exe` — R3=True (PRIMER), R1=R2=R4=False:**
+  `[Rule3] Code injection: 'notepad.exe' punya segmen PAGE_EXECUTE_READWRITE + PrivateMemory di alamat 0x22319910000` (+ `0x22319950000`)
+
+**Verifikasi (isolasi R3 tercapai):**
+- ✅ Target primer R3 tercapai; PID 3404 + 2 segmen RWX cocok ground truth.
+- ✅ **R1=R2=R4=False** → membuktikan R3 menangkap ancaman yang rule lain lewatkan
+  (nilai deteksi mandiri): proses sah tanpa C2 aktif hanya terbongkar lewat
+  artefak memori injeksinya.
+- ✅ malfind mengembalikan 20 record, hanya 2 (notepad) yang diflag; 18 sisanya
+  proses whitelist (`MsMpEng.exe` ×15 Defender, `SearchApp.exe` ×2,
+  `smartscreen.ex` ×1) ∈ `LEGIT_RWX_PROCESSES` → R3 tersupresi benar, 0 FP.
+- ✅ Defender Real-time OFF tak mematikan proses `MsMpEng.exe` → latar RWX
+  realistis tetap ada (setara Dataset 4).
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r3_injection.raw`.
+Hasil analyzer + JSON plugin: `results/r3_injection/`.
 
 ---
 

