@@ -5,15 +5,25 @@ Modul eksekusi plugin Volatility3 untuk Platform Triase Forensik Memori.
 
 Tanggung jawab modul ini:
   - Memvalidasi keberadaan vol binary dan file memory dump
-  - Menjalankan 4 plugin Volatility3 secara sekuensial
+  - Menjalankan 6 plugin Volatility3 secara sekuensial
   - Mem-parsing output JSON dari setiap plugin menjadi list of dict
   - Mengembalikan hasil mentah ke analyzer.py untuk evaluasi heuristik
 
-Plugin yang dieksekusi (sesuai proposal BAB III):
-  1. windows.pslist           → Identify Rogue Processes (daftar proses)
-  2. windows.pstree           → Identify Rogue Processes + Analyze Process Objects
+Plugin yang dieksekusi (struktur final pasca revisi, 6 plugin / 4 kategori SANS):
+  1. windows.pslist           → Identify Rogue Processes (daftar proses, typosquatting/path)
+  2. windows.pstree           → Identify Rogue Processes (anomali induk-anak)
   3. windows.netscan          → Review Network Artifacts
   4. windows.malware.malfind  → Look for Evidence of Code Injection
+  5. windows.dlllist          → Analyze Process Objects (DLL dari path mencurigakan)
+  6. windows.handles          → Analyze Process Objects (akses mencurigakan ke LSASS)
+
+Catatan revisi:
+  - pstree sebelumnya keliru dikategorikan sebagai "Analyze Process Objects".
+    Berdasarkan verifikasi ke poster resmi SANS Memory Forensics Cheat Sheet
+    (edisi Volatility3), pstree termasuk kategori "Identify Rogue Processes".
+    dlllist dan handles adalah anggota asli kategori "Analyze Process Objects".
+  - windows.dlllist dan windows.handles ditambahkan atas persetujuan Pak Rahmat
+    (WhatsApp, 30 Juni 2026), berdasar Q13 poin 3 dan poin 5 transkrip wawancara.
 
 Catatan teknis:
   - Menggunakan --renderer json agar output terstruktur dan mudah di-parse
@@ -38,12 +48,14 @@ from typing import Optional
 # Path default vol binary di Kali Linux WSL2 (hasil pip install volatility3)
 DEFAULT_VOL_PATH = Path.home() / ".local" / "bin" / "vol"
 
-# 4 plugin yang digunakan -- urutan ini juga urutan eksekusi
+# 6 plugin yang digunakan -- urutan ini juga urutan eksekusi
 PLUGINS = [
     "windows.pslist",           # daftar proses aktif
     "windows.pstree",           # hierarki parent-child proses
     "windows.netscan",          # koneksi jaringan aktif
     "windows.malware.malfind",  # segmen memori PAGE_EXECUTE_READWRITE
+    "windows.dlllist",          # DLL yang dimuat tiap proses
+    "windows.handles",          # handle antarproses (termasuk akses ke LSASS)
 ]
 
 # Timeout per plugin dalam detik
@@ -61,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 class VolatilityRunner:
     """
-    Wrapper eksekusi Volatility3 untuk 4 plugin triase.
+    Wrapper eksekusi Volatility3 untuk 6 plugin triase.
 
     Contoh penggunaan:
         runner = VolatilityRunner("/mnt/d/forensic_triase/dataset/dump.dmp")
@@ -214,12 +226,12 @@ class VolatilityRunner:
         return None
 
     # ------------------------------------------------------------------
-    # Jalankan semua 4 plugin
+    # Jalankan semua 6 plugin
     # ------------------------------------------------------------------
 
     def run_all(self) -> dict:
         """
-        Jalankan keempat plugin secara sekuensial terhadap memory dump.
+        Jalankan keenam plugin secara sekuensial terhadap memory dump.
 
         Return
         ------
@@ -232,7 +244,9 @@ class VolatilityRunner:
                 "windows.pslist": [ {...}, {...}, ... ],
                 "windows.pstree": [ {...}, ... ],
                 "windows.netscan": [ {...}, ... ],
-                "windows.malware.malfind": [ {...}, ... ] atau None
+                "windows.malware.malfind": [ {...}, ... ] atau None,
+                "windows.dlllist": [ {...}, ... ],
+                "windows.handles": [ {...}, ... ]
             }
         """
         self.validate()

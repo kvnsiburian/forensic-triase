@@ -5,6 +5,13 @@
 *.mem
 output/
 
+# Hasil analisis (results/): simpan HANYA vonis akhir (classification.json).
+# JSON mentah plugin (handles/dlllist/pslist/pstree/netscan/malfind) besar
+# dan bisa dibuat ulang kapan saja via run_dataset.py — jadi diabaikan.
+results/**
+!results/**/
+!results/**/*.classification.json
+
 # Python cache
 __pycache__/
 *.pyc

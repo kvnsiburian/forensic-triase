@@ -70,15 +70,17 @@ def _style_header(ws, row: int = 1):
         cell.alignment = Alignment(horizontal="center")
 
 
-def _style_row(ws, row: int, risk: str):
-    """Warnai baris berdasarkan risk level."""
+def _style_row(ws, row: int, status: str):
+    """
+    Warnai baris berdasarkan Status (binary).
+    Per arahan Pak Rahmat (3 Juni 2026): scoring layer dihapus,
+    pewarnaan disederhanakan menjadi 2 kategori saja.
+    """
     colors = {
-        "HIGH":   "FFDDD0",
-        "MEDIUM": "FFF0CC",
-        "LOW":    "FEFFD0",
-        "CLEAN":  "D9F0D9",
+        "SUSPICIOUS": "FFE0CC",  # oranye muda
+        "CLEAN":      "D9F0D9",  # hijau muda
     }
-    fill_color = colors.get(risk, "FFFFFF")
+    fill_color = colors.get(status, "FFFFFF")
     fill = PatternFill("solid", fgColor=fill_color)
     for cell in ws[row]:
         cell.fill = fill
@@ -179,10 +181,13 @@ def export_results_xlsx(
     _write_plugin_sheet(ws4, malfind, "Malfind")
 
     # ── Sheet 5: Klasifikasi ──────────────────────────────────────────
+    # Per arahan Pak Rahmat (3 Juni 2026): kolom Score dan Risk dihapus dari
+    # output Excel — klasifikasi binary murni. Logika scoring dihapus total
+    # dari analyzer.py per arahan Pak Rahmat (3 Juni 2026) — klasifikasi binary murni.
     ws5 = wb.create_sheet(title="Klasifikasi")
 
     headers = [
-        "PID", "Name", "Path", "Status", "Score", "Risk",
+        "PID", "Name", "Path", "Status",
         "Rule1_Rogue", "Rule2_Network", "Rule3_Injection", "Rule4_ProcObj",
         "Reasons"
     ]
@@ -196,8 +201,6 @@ def export_results_xlsx(
             rec["Name"],
             rec["Path"] or "",
             rec["Status"],
-            rec.get("Score", 0),
-            rec.get("Risk", "CLEAN"),
             rec["Rule1_hit"],
             rec["Rule2_hit"],
             rec["Rule3_hit"],
@@ -205,7 +208,7 @@ def export_results_xlsx(
             reasons_str,
         ]
         ws5.append(row)
-        _style_row(ws5, i, rec.get("Risk", "CLEAN"))
+        _style_row(ws5, i, rec.get("Status", "CLEAN"))
 
     _auto_width(ws5)
     ws5.freeze_panes = "A2"
@@ -235,24 +238,22 @@ def export_summary(
     total      = len(classifications)
     suspicious = sum(1 for r in classifications if r["Status"] == "SUSPICIOUS")
     clean      = total - suspicious
-    high       = sum(1 for r in classifications if r.get("Risk") == "HIGH")
-    medium     = sum(1 for r in classifications if r.get("Risk") == "MEDIUM")
-    low        = sum(1 for r in classifications if r.get("Risk") == "LOW")
+    # Per arahan Pak Rahmat (3 Juni 2026): kolom High/Medium/Low dihapus
+    # dari summary — klasifikasi binary murni.
     rule1_hits = sum(1 for r in classifications if r["Rule1_hit"])
     rule2_hits = sum(1 for r in classifications if r["Rule2_hit"])
     rule3_hits = sum(1 for r in classifications if r["Rule3_hit"])
     rule4_hits = sum(1 for r in classifications if r["Rule4_hit"])
 
     fieldnames = [
-        "Dump", "Timestamp", "Total_PID", "Suspicious",
-        "High", "Medium", "Low", "Clean",
+        "Dump", "Timestamp", "Total_PID", "Suspicious", "Clean",
         "Rule1_Hits", "Rule2_Hits", "Rule3_Hits", "Rule4_Hits",
     ]
 
     values = [
         dump_name,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        total, suspicious, high, medium, low, clean,
+        total, suspicious, clean,
         rule1_hits, rule2_hits, rule3_hits, rule4_hits,
     ]
     wb = Workbook()
