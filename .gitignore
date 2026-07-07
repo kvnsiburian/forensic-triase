@@ -23,3 +23,7 @@ __pycache__/
 
 # Log files
 *.log
+
+# File backup manual (jangan ikut ter-commit)
+*.bak
+*.bak*
