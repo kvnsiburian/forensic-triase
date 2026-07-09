@@ -39,7 +39,7 @@ import subprocess
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # ---------------------------------------------------------------------------
 # Konfigurasi
@@ -276,6 +276,96 @@ class VolatilityRunner:
         logger.info("=" * 60)
 
         return results
+
+    # ------------------------------------------------------------------
+    # Jalankan semua plugin secara paralel (opsional / multiprocessing)
+    # ------------------------------------------------------------------
+
+    def run_all_parallel(
+        self,
+        plugins: Optional[list] = None,
+        max_workers: Optional[int] = None,
+        progress: Optional[Callable[[str], None]] = None,
+        cancel_event=None,
+    ) -> tuple:
+        """
+        Jalankan plugin secara paralel memakai thread pool (mode multiprocessing).
+
+        Tiap plugin adalah subprocess Volatility3 tersendiri, jadi thread di sini
+        hanya menunggu subprocess selesai sehingga beberapa Volatility berjalan
+        bersamaan. Jumlah pekerja otomatis menyesuaikan jumlah core dan tidak
+        pernah melebihi jumlah plugin.
+
+        PENGAMAN: plugin yang GAGAL (hasil None) dijalankan ulang satu per satu
+        secara berurutan supaya tidak ada data yang hilang diam-diam. Hasil kosong
+        yang wajar ([]) tidak dianggap gagal, jadi tidak diulang.
+
+        Return
+        ------
+        tuple (results, reran)
+            results : dict {plugin: hasil}, bentuknya sama dengan run_all()
+            reran   : list plugin yang sempat gagal saat paralel lalu diulang
+        """
+        import os
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        self.validate()
+
+        if plugins is None:
+            plugins = list(PLUGINS)
+
+        if max_workers is None:
+            max_workers = min(len(plugins), os.cpu_count() or 2)
+
+        logger.info("=" * 60)
+        logger.info(f"Memulai analisis PARALEL: {self.dump_path.name}")
+        logger.info(f"Total plugin: {len(plugins)} | pekerja: {max_workers}")
+        logger.info("=" * 60)
+
+        results: dict = {}
+        total = len(plugins)
+        done = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {executor.submit(self.run_plugin, p): p for p in plugins}
+            for future in as_completed(future_map):
+                plugin = future_map[future]
+                results[plugin] = future.result()
+                done += 1
+                if progress:
+                    progress(f"[{done}/{total}] Selesai (paralel): {plugin}")
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Analisis paralel dibatalkan oleh pengguna.")
+                    return results, []
+
+        # PENGAMAN: jalankan ulang plugin yang gagal (None) secara berurutan.
+        reran = []
+        for plugin in plugins:
+            if results.get(plugin) is None:
+                if progress:
+                    progress(f"Plugin gagal saat paralel, dijalankan ulang: {plugin}")
+                logger.warning(
+                    f"[{plugin}] Gagal saat paralel. Menjalankan ulang secara berurutan."
+                )
+                results[plugin] = self.run_plugin(plugin)
+                reran.append(plugin)
+
+        # Ringkasan hasil
+        logger.info("=" * 60)
+        logger.info("Ringkasan eksekusi plugin (paralel):")
+        for plugin, data in results.items():
+            if data is None:
+                status = "GAGAL"
+            elif len(data) == 0:
+                status = "OK (0 record)"
+            else:
+                status = f"OK ({len(data)} record)"
+            logger.info(f"  {plugin:<35} -> {status}")
+        if reran:
+            logger.info(f"Plugin diulang karena sempat gagal: {reran}")
+        logger.info("=" * 60)
+
+        return results, reran
 
     # ------------------------------------------------------------------
     # Info summary (berguna untuk GUI)

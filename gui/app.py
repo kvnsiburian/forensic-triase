@@ -23,7 +23,7 @@ Desain:
   - Analisis berjalan di thread terpisah supaya GUI tidak freeze
   - Baris SUSPICIOUS berwarna merah, CLEAN berwarna hijau
   - Klik baris untuk lihat detail Reasons di panel bawah
-  - Tombol Export Excel memanggil reporter langsung dari GUI
+  - Tombol Export Hasil memanggil reporter (Excel + CSV) langsung dari GUI
   - Panel tabel dan detail bisa digeser proporsinya (PanedWindow)
   - Search bar untuk filter proses secara real-time
 
@@ -145,6 +145,7 @@ class ForensicTriaseApp(tk.Tk):
         self._is_running       = False
         self._cancel_event     = threading.Event()
         self._search_var       = tk.StringVar()
+        self._use_parallel_var = tk.BooleanVar(value=False)
 
         self._build_ui()
         self._apply_treeview_style()
@@ -242,7 +243,7 @@ class ForensicTriaseApp(tk.Tk):
         self._btn_cancel.pack(side="left", padx=(8, 0))
 
         self._btn_export = tk.Button(
-            controls, text="  Export Excel",
+            controls, text="  Export Hasil",
             font=FONT_NORMAL,
             bg="#166534", fg="white",
             activebackground="#14532d",
@@ -252,6 +253,24 @@ class ForensicTriaseApp(tk.Tk):
             command=self._export_csv,
         )
         self._btn_export.pack(side="right")
+
+        # Baris kedua: opsi multiprocessing, ditaruh di baris sendiri agar utuh
+        self._chk_parallel = tk.Checkbutton(
+            outer,
+            text="Gunakan multiprocessing",
+            variable=self._use_parallel_var,
+            font=FONT_NORMAL,
+            bg=COLOR_PANEL, fg=COLOR_TEXT,
+            selectcolor=COLOR_BORDER,
+            activebackground=COLOR_PANEL,
+            activeforeground=COLOR_TEXT,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+            anchor="w",
+        )
+        self._chk_parallel.pack(fill="x", pady=(8, 0))
 
         # Baris bawah: progress bar determinate (25% per plugin)
         self._progress = ttk.Progressbar(
@@ -471,6 +490,9 @@ class ForensicTriaseApp(tk.Tk):
             background="#ffffff",
             thickness=6,
             borderwidth=0,
+            bordercolor="#1b2c3e",
+            lightcolor="#1b2c3e",
+            darkcolor="#1b2c3e",
         )
 
     # ------------------------------------------------------------------
@@ -484,7 +506,7 @@ class ForensicTriaseApp(tk.Tk):
                 ("Memory Dump", "*.dmp *.raw *.vmem *.mem"),
                 ("Semua File", "*.*"),
             ],
-            initialdir="/mnt/d",
+            initialdir=str(Path("/mnt/d") if Path("/mnt/d").exists() else Path.home()),
         )
         if path:
             self._dump_path.set(path)
@@ -531,6 +553,7 @@ class ForensicTriaseApp(tk.Tk):
                 dump_path=dump,
                 progress_callback=self._on_progress,
                 cancel_event=self._cancel_event,
+                use_parallel=self._use_parallel_var.get(),
             )
             if not self._cancel_event.is_set():
                 self.after(0, self._on_analysis_done, result)
@@ -579,8 +602,17 @@ class ForensicTriaseApp(tk.Tk):
         self._set_status(
             f"Analisis selesai: {stats['total']} PID | "
             f"{stats['suspicious']} SUSPICIOUS | {stats['clean']} CLEAN  |  "
-            f"Excel: {result['results_path'].name}"
+            f"Excel + CSV tersimpan ({result['results_path'].name})"
         )
+
+        reran = result.get("reran_plugins") or []
+        if reran:
+            messagebox.showinfo(
+                "Multiprocessing",
+                "Sebagian plugin sempat gagal saat mode paralel, lalu dijalankan "
+                "ulang secara berurutan agar hasil tetap lengkap:\n\n  "
+                + "\n  ".join(reran),
+            )
 
     def _on_analysis_error(self, error: str):
         self._set_buttons_running(False)
@@ -691,7 +723,7 @@ class ForensicTriaseApp(tk.Tk):
 
         folder = filedialog.askdirectory(
             title="Pilih Folder Tujuan Export",
-            initialdir="/mnt/d",
+            initialdir=str(Path("/mnt/d") if Path("/mnt/d").exists() else Path.home()),
         )
         if not folder:
             return
@@ -705,14 +737,20 @@ class ForensicTriaseApp(tk.Tk):
             output_dir=Path(folder),
         )
 
+        jml_plugin_csv = len(exported.get("plugin_csv", []))
         messagebox.showinfo(
             "Export Berhasil",
-            f"File berhasil disimpan:\n\n"
+            f"Hasil disimpan dalam dua jenis berkas:\n\n"
+            f"Excel (.xlsx):\n"
             f"  {exported['results_path'].name}\n"
             f"  {exported['summary_path'].name}\n\n"
+            f"CSV (.csv):\n"
+            f"  {exported['klasifikasi_csv'].name}\n"
+            f"  {exported['summary_csv'].name}\n"
+            f"  + {jml_plugin_csv} berkas CSV output plugin\n\n"
             f"Lokasi: {folder}",
         )
-        self._set_status(f"Export selesai: {folder}")
+        self._set_status(f"Export selesai (Excel + CSV): {folder}")
 
     # ------------------------------------------------------------------
     # Helper UI
@@ -784,6 +822,7 @@ class ForensicTriaseApp(tk.Tk):
         self._btn_browse.configure(state=state_browse)
         self._btn_export.configure(state=state_export)
         self._btn_cancel.configure(state="normal" if running else "disabled")
+        self._chk_parallel.configure(state="disabled" if running else "normal")
 
         if running:
             self._btn_analyze.configure(text="  Menganalisis...")

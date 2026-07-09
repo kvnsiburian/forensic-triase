@@ -6,7 +6,7 @@ Entry point Platform Triase Forensik Memori.
 File ini adalah "lem" yang menghubungkan tiga modul inti:
   runner.py   → jalankan 4 plugin Volatility3
   analyzer.py → evaluasi heuristik, klasifikasi CLEAN/SUSPICIOUS
-  reporter.py → export hasil ke CSV
+  reporter.py → export hasil ke berkas Excel (.xlsx) dan CSV (.csv)
 
 GUI (gui/app.py) hanya memanggil fungsi run_analysis() dari sini.
 Dengan desain ini, GUI dan logika analisis sepenuhnya terpisah —
@@ -37,6 +37,7 @@ def run_analysis(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     progress_callback: Optional[Callable[[str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    use_parallel: bool = False,
 ) -> dict:
     """
     Jalankan pipeline analisis lengkap terhadap satu memory dump.
@@ -47,7 +48,8 @@ def run_analysis(
         Path lengkap ke file memory dump (.dmp / .raw / .vmem)
 
     output_dir : Path
-        Folder tujuan export CSV (default: /mnt/d/forensic_triase/output)
+        Folder tujuan export (default: DEFAULT_OUTPUT_DIR, yaitu /mnt/d/forensic_triase/output
+        bila drive D: ada, jika tidak ke folder forensic_triase_output di home pengguna)
 
     progress_callback : callable, optional
         Fungsi yang dipanggil setiap ada update status.
@@ -61,8 +63,8 @@ def run_analysis(
             "success"        : bool,
             "error"          : str | None,
             "classifications": list[dict],   # output classify_all()
-            "results_path"   : Path | None,  # path results.csv
-            "summary_path"   : Path | None,  # path summary.csv
+            "results_path"   : Path | None,  # path results.xlsx
+            "summary_path"   : Path | None,  # path summary.xlsx
             "stats": {
                 "total"     : int,
                 "suspicious": int,
@@ -98,13 +100,23 @@ def run_analysis(
 
         from core.runner import PLUGINS
 
-        plugin_results = {}
-        for i, plugin in enumerate(PLUGINS, start=1):
-            _notify(f"[{i}/{len(PLUGINS)}] Menjalankan {plugin}...")
-            plugin_results[plugin] = runner.run_plugin(plugin)
+        reran_plugins = []
+        if use_parallel:
+            _notify("Menjalankan 6 plugin secara paralel (multiprocessing)...")
+            plugin_results, reran_plugins = runner.run_all_parallel(
+                list(PLUGINS), progress=_notify, cancel_event=cancel_event
+            )
             if cancel_event and cancel_event.is_set():
                 logger.info("Analisis dibatalkan oleh pengguna.")
                 return result
+        else:
+            plugin_results = {}
+            for i, plugin in enumerate(PLUGINS, start=1):
+                _notify(f"[{i}/{len(PLUGINS)}] Menjalankan {plugin}...")
+                plugin_results[plugin] = runner.run_plugin(plugin)
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Analisis dibatalkan oleh pengguna.")
+                    return result
 
         # Cek apakah semua plugin berhasil
         failed = [p for p, data in plugin_results.items() if data is None]
@@ -123,18 +135,19 @@ def run_analysis(
 
         _notify(f"Selesai: {total} PID | {suspicious} SUSPICIOUS | {clean} CLEAN")
 
-        # ── Step 3: Export CSV ─────────────────────────────────────────
-        _notify("Mengekspor hasil ke CSV...")
+        # ── Step 3: Export Excel + CSV ─────────────────────────────────
+        _notify("Mengekspor hasil ke berkas Excel dan CSV...")
         dump_name = Path(dump_path).name
         exported  = export_all(classifications, plugin_results, dump_name, output_dir)
 
-        _notify(f"CSV tersimpan di: {output_dir}")
+        _notify(f"Berkas Excel dan CSV tersimpan di: {output_dir}")
 
         # ── Susun hasil akhir ──────────────────────────────────────────
         result.update({
             "success":         True,
             "classifications": classifications,
             "plugin_results":  plugin_results,
+            "reran_plugins":   reran_plugins,
             "results_path":    exported["results_path"],
             "summary_path":    exported["summary_path"],
             "stats": {
@@ -192,8 +205,8 @@ if __name__ == "__main__":
             print(f"Total PID  : {stats['total']}")
             print(f"SUSPICIOUS : {stats['suspicious']}")
             print(f"CLEAN      : {stats['clean']}")
-            print(f"results.csv: {result['results_path']}")
-            print(f"summary.csv: {result['summary_path']}")
+            print(f"results.xlsx: {result['results_path']}")
+            print(f"summary.xlsx: {result['summary_path']}")
         else:
             print(f"Status : GAGAL")
             print(f"Error  : {result['error']}")
