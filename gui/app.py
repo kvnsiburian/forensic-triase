@@ -36,6 +36,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
 import logging
 import re
+import time
 from pathlib import Path
 import sys
 
@@ -141,11 +142,14 @@ class ForensicTriaseApp(tk.Tk):
         self._total_var        = tk.StringVar(value="--")
         self._suspicious_var   = tk.StringVar(value="--")
         self._clean_var        = tk.StringVar(value="--")
+        self._elapsed_var      = tk.StringVar(value="--")
         self._classifications  = []
         self._is_running       = False
         self._cancel_event     = threading.Event()
         self._search_var       = tk.StringVar()
         self._use_parallel_var = tk.BooleanVar(value=False)
+        self._start_time       = None   # penanda waktu mulai analisis (time.monotonic)
+        self._timer_job        = None   # id job self.after untuk timer live
 
         self._build_ui()
         self._apply_treeview_style()
@@ -291,6 +295,7 @@ class ForensicTriaseApp(tk.Tk):
             ("Total PID",   self._total_var,      COLOR_TEXT),
             ("SUSPICIOUS",  self._suspicious_var,  COLOR_RED),
             ("CLEAN",       self._clean_var,        COLOR_GREEN),
+            ("WAKTU",       self._elapsed_var,      COLOR_ACCENT),
         ]
 
         for label, var, color in stats:
@@ -539,6 +544,7 @@ class ForensicTriaseApp(tk.Tk):
         self._progress["value"] = 0
         self._set_buttons_running(True)
         self._set_status("Memulai analisis...")
+        self._start_timer()
 
         thread = threading.Thread(
             target=self._run_analysis_thread,
@@ -574,6 +580,7 @@ class ForensicTriaseApp(tk.Tk):
             return
         self._cancel_event.set()
         self._clear_table()
+        self._stop_timer()
         self._reset_stats()
         self._progress["value"] = 0
         self._set_buttons_running(False)
@@ -581,6 +588,7 @@ class ForensicTriaseApp(tk.Tk):
 
     def _on_analysis_done(self, result: dict):
         self._set_buttons_running(False)
+        durasi = self._stop_timer()
 
         if not result["success"]:
             messagebox.showerror("Analisis Gagal", result["error"])
@@ -600,7 +608,7 @@ class ForensicTriaseApp(tk.Tk):
         self._progress["value"] = 100
 
         self._set_status(
-            f"Analisis selesai: {stats['total']} PID | "
+            f"Analisis selesai dalam {durasi}: {stats['total']} PID | "
             f"{stats['suspicious']} SUSPICIOUS | {stats['clean']} CLEAN  |  "
             f"Excel + CSV tersimpan ({result['results_path'].name})"
         )
@@ -616,6 +624,7 @@ class ForensicTriaseApp(tk.Tk):
 
     def _on_analysis_error(self, error: str):
         self._set_buttons_running(False)
+        self._stop_timer()
         messagebox.showerror("Error", error)
         self._set_status(f"Error: {error}")
 
@@ -807,6 +816,55 @@ class ForensicTriaseApp(tk.Tk):
         self._total_var.set("--")
         self._suspicious_var.set("--")
         self._clean_var.set("--")
+        self._elapsed_var.set("--")
+
+    # ------------------------------------------------------------------
+    # Timer waktu pengerjaan
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Ubah detik menjadi format ringkas, misal 45s, 3m 12s, 1j 04m."""
+        total = int(round(seconds))
+        jam, sisa = divmod(total, 3600)
+        menit, detik = divmod(sisa, 60)
+        if jam:
+            return f"{jam}j {menit:02d}m"
+        if menit:
+            return f"{menit}m {detik:02d}s"
+        return f"{detik}s"
+
+    def _start_timer(self):
+        """Mulai menghitung waktu dan tampilkan detiknya secara live."""
+        self._start_time = time.monotonic()
+        self._elapsed_var.set("0s")
+        self._tick_timer()
+
+    def _tick_timer(self):
+        """Perbarui tampilan waktu tiap detik selama analisis berjalan."""
+        if self._start_time is None:
+            return
+        elapsed = time.monotonic() - self._start_time
+        teks = self._format_duration(elapsed)
+        self._elapsed_var.set(teks)
+        # tampilkan juga di status bar hanya saat analisis masih berjalan
+        if self._is_running:
+            base = self._status_text.get().split("   |   waktu:")[0]
+            self._status_text.set(f"{base}   |   waktu: {teks}")
+        self._timer_job = self.after(1000, self._tick_timer)
+
+    def _stop_timer(self) -> str:
+        """Hentikan timer, kunci nilai akhir di kartu, kembalikan teks durasi."""
+        if self._timer_job is not None:
+            self.after_cancel(self._timer_job)
+            self._timer_job = None
+        if self._start_time is None:
+            return "--"
+        elapsed = time.monotonic() - self._start_time
+        teks = self._format_duration(elapsed)
+        self._elapsed_var.set(teks)
+        self._start_time = None
+        return teks
 
     def _set_status(self, msg: str):
         self._status_text.set(msg)
