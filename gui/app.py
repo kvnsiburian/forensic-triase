@@ -179,14 +179,6 @@ class ForensicTriaseApp(tk.Tk):
             bg=COLOR_ACCENT,
         ).pack(side="left", padx=16)
 
-        tk.Label(
-            frame,
-            text="Volatility3",
-            font=FONT_SMALL,
-            fg="#000000",
-            bg=COLOR_ACCENT,
-        ).pack(side="right", padx=16)
-
     def _build_file_panel(self):
         """Panel pemilihan file memory dump dan tombol analisis."""
         outer = tk.Frame(self, bg=COLOR_PANEL, pady=10, padx=16)
@@ -205,76 +197,78 @@ class ForensicTriaseApp(tk.Tk):
             controls,
             textvariable=self._dump_path,
             font=FONT_MONO,
-            bg="#16213e", fg=COLOR_TEXT,
-            insertbackground=COLOR_TEXT,
-            relief="flat", bd=4,
-            width=55,
+            bg="#e2e6ec", fg="#1b2c3e",
+            insertbackground="#1b2c3e",
+            relief="flat", bd=0,
+            highlightthickness=0,
+            width=52,
         )
-        self._entry_path.pack(side="left", padx=(8, 6), ipady=4)
+        self._entry_path.pack(side="left", padx=(8, 10), ipady=6)
 
         self._btn_browse = tk.Button(
             controls, text="Browse",
             font=FONT_NORMAL,
-            bg=COLOR_BORDER, fg=COLOR_TEXT,
-            activebackground="#555577",
-            relief="flat", padx=12, pady=4,
+            bg=COLOR_BORDER, fg="white",
+            activebackground="#555577", activeforeground="white",
+            relief="flat", bd=0, highlightthickness=0,
+            padx=14, pady=6,
             cursor="hand2",
             command=self._browse_file,
         )
-        self._btn_browse.pack(side="left", padx=(0, 10))
+        self._btn_browse.pack(side="left", padx=(0, 8))
 
         self._btn_analyze = tk.Button(
-            controls, text="  Mulai Analisis",
-            font=FONT_HEADER,
+            controls, text="Mulai Analisis",
+            font=FONT_NORMAL,
             bg=COLOR_ACCENT, fg="white",
             activebackground=COLOR_ACCENT_HOV,
-            relief="flat", padx=18, pady=4,
+            relief="flat", bd=0, highlightthickness=0,
+            padx=14, pady=6,
             cursor="hand2",
             command=self._start_analysis,
         )
-        self._btn_analyze.pack(side="left")
+        self._btn_analyze.pack(side="left", padx=(0, 8))
 
         self._btn_cancel = tk.Button(
-            controls, text="  Batal",
+            controls, text="Batal",
             font=FONT_NORMAL,
             bg="#7f1d1d", fg="white",
             activebackground="#991b1b",
-            relief="flat", padx=12, pady=4,
+            relief="flat", bd=0, highlightthickness=0,
+            padx=14, pady=6,
             cursor="hand2",
             state="disabled",
             command=self._cancel_analysis,
         )
-        self._btn_cancel.pack(side="left", padx=(8, 0))
+        self._btn_cancel.pack(side="left", padx=(0, 8))
+
+        # Reset diletakkan di antara Batal dan Export Hasil, semua berdempet
+        # rapat (side="left") agar tidak ada celah menganga di tengah baris.
+        self._btn_reset = tk.Button(
+            controls, text="Reset",
+            font=FONT_NORMAL,
+            bg=COLOR_BORDER, fg="white",
+            activebackground=COLOR_ACCENT, activeforeground="white",
+            relief="flat", bd=0, highlightthickness=0,
+            padx=14, pady=6,
+            cursor="hand2",
+            state="disabled",
+            command=self._reset_all,
+        )
+        self._btn_reset.pack(side="left", padx=(0, 8))
 
         self._btn_export = tk.Button(
-            controls, text="  Export Hasil",
+            controls, text="Export Hasil",
             font=FONT_NORMAL,
             bg="#166534", fg="white",
             activebackground="#14532d",
-            relief="flat", padx=12, pady=4,
+            relief="flat", bd=0, highlightthickness=0,
+            padx=14, pady=6,
             cursor="hand2",
             state="disabled",
             command=self._export_csv,
         )
-        self._btn_export.pack(side="right")
-
-        # Baris kedua: opsi multiprocessing, ditaruh di baris sendiri agar utuh
-        self._chk_parallel = tk.Checkbutton(
-            outer,
-            text="Gunakan multiprocessing",
-            variable=self._use_parallel_var,
-            font=FONT_NORMAL,
-            bg=COLOR_PANEL, fg=COLOR_TEXT,
-            selectcolor=COLOR_BORDER,
-            activebackground=COLOR_PANEL,
-            activeforeground=COLOR_TEXT,
-            relief="flat",
-            bd=0,
-            highlightthickness=0,
-            cursor="hand2",
-            anchor="w",
-        )
-        self._chk_parallel.pack(fill="x", pady=(8, 0))
+        self._btn_export.pack(side="left")
 
         # Baris bawah: progress bar determinate (25% per plugin)
         self._progress = ttk.Progressbar(
@@ -284,12 +278,15 @@ class ForensicTriaseApp(tk.Tk):
             maximum=100,
             style="Dark.Horizontal.TProgressbar",
         )
-        self._progress.pack(fill="x", pady=(6, 0))
+        self._progress.pack(fill="x", pady=(10, 0))
 
     def _build_stats_panel(self):
-        """Panel statistik — Total PID, SUSPICIOUS, CLEAN."""
+        """Panel statistik — Total PID, SUSPICIOUS, CLEAN, WAKTU."""
         frame = tk.Frame(self, bg=COLOR_BG)
-        frame.pack(fill="x", padx=12, pady=4)
+        frame.pack(fill="x", padx=12, pady=(4, 0))
+
+        cards = tk.Frame(frame, bg=COLOR_BG)
+        cards.pack(fill="x")
 
         stats = [
             ("Total PID",   self._total_var,      COLOR_TEXT),
@@ -298,9 +295,12 @@ class ForensicTriaseApp(tk.Tk):
             ("WAKTU",       self._elapsed_var,      COLOR_ACCENT),
         ]
 
-        for label, var, color in stats:
-            card = tk.Frame(frame, bg=COLOR_PANEL, padx=20, pady=8, relief="flat")
-            card.pack(side="left", padx=(0, 8), fill="x", expand=True)
+        for i, (label, var, color) in enumerate(stats):
+            # Kartu terakhir tanpa margin kanan agar tepinya lurus dengan
+            # panel di atasnya (sama-sama padx=12 dari tepi jendela).
+            right_pad = 0 if i == len(stats) - 1 else 8
+            card = tk.Frame(cards, bg=COLOR_PANEL, padx=20, pady=8, relief="flat")
+            card.pack(side="left", padx=(0, right_pad), fill="x", expand=True)
 
             tk.Label(
                 card, text=label,
@@ -317,20 +317,23 @@ class ForensicTriaseApp(tk.Tk):
         paned = tk.PanedWindow(
             self,
             orient="vertical",
-            bg=COLOR_BORDER,
+            bg=COLOR_BG,
             sashwidth=6,
             sashrelief="flat",
+            borderwidth=0,
+            relief="flat",
         )
-        paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
+        paned.pack(fill="both", expand=True, padx=12, pady=(0, 0))
 
         # ── Frame atas: label + search + treeview ────────────────────
         top_frame = tk.Frame(paned, bg=COLOR_BG)
 
-        # Label judul
+        # Label judul (beri jarak kecil dari kartu statistik di atasnya,
+        # cukup untuk bernapas tapi tidak mepet)
         tk.Label(
             top_frame, text="Hasil Klasifikasi Proses",
             font=FONT_HEADER, fg=COLOR_TEXT, bg=COLOR_BG,
-        ).pack(anchor="w", pady=(4, 2))
+        ).pack(anchor="w", pady=(8, 3))
 
         # Search bar
         search_frame = tk.Frame(top_frame, bg=COLOR_BG)
@@ -341,28 +344,48 @@ class ForensicTriaseApp(tk.Tk):
             font=FONT_SMALL, fg=COLOR_SUBTEXT, bg=COLOR_BG,
         ).pack(side="left", padx=(0, 6))
 
+        # Opsi multiprocessing sejajar di sisi kanan baris pencarian
+        self._chk_parallel = tk.Checkbutton(
+            search_frame,
+            text="Gunakan multiprocessing",
+            variable=self._use_parallel_var,
+            font=FONT_NORMAL,
+            bg=COLOR_BG, fg=COLOR_TEXT,
+            selectcolor=COLOR_BORDER,
+            activebackground=COLOR_BG,
+            activeforeground=COLOR_TEXT,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        self._chk_parallel.pack(side="right")
+
         self._search_var.trace("w", self._on_search)
 
         self._search_entry = tk.Entry(
             search_frame,
             textvariable=self._search_var,
             font=FONT_MONO,
-            bg="#16213e", fg=COLOR_TEXT,
-            insertbackground=COLOR_TEXT,
-            relief="flat", bd=4,
+            bg="#e2e6ec", fg="#1b2c3e",
+            insertbackground="#1b2c3e",
+            relief="flat", bd=0,
+            highlightthickness=0,
             width=30,
         )
-        self._search_entry.pack(side="left", ipady=3)
+        self._search_entry.pack(side="left", ipady=6)
 
         tk.Button(
-            search_frame, text="  X  ",
+            search_frame, text="X",
             font=FONT_SMALL,
             bg=COLOR_BORDER, fg=COLOR_TEXT,
-            activebackground="#555577",
-            relief="flat", padx=2, pady=1,
+            activebackground="#555577", activeforeground=COLOR_TEXT,
+            relief="flat", bd=0,
+            highlightthickness=0,
+            padx=10,
             cursor="hand2",
             command=lambda: self._search_var.set(""),
-        ).pack(side="left", padx=(4, 0))
+        ).pack(side="left", padx=(4, 0), ipady=3)
 
         # Treeview + Scrollbar
         tree_frame = tk.Frame(top_frame, bg=COLOR_BG)
@@ -588,7 +611,7 @@ class ForensicTriaseApp(tk.Tk):
 
     def _on_analysis_done(self, result: dict):
         self._set_buttons_running(False)
-        durasi = self._stop_timer()
+        self._stop_timer()   # hentikan timer & kunci nilai akhir di kartu WAKTU
 
         if not result["success"]:
             messagebox.showerror("Analisis Gagal", result["error"])
@@ -605,12 +628,11 @@ class ForensicTriaseApp(tk.Tk):
 
         self._populate_table(self._classifications)
         self._btn_export.configure(state="normal")
+        self._btn_reset.configure(state="normal")
         self._progress["value"] = 100
 
         self._set_status(
-            f"Analisis selesai dalam {durasi}: {stats['total']} PID | "
-            f"{stats['suspicious']} SUSPICIOUS | {stats['clean']} CLEAN  |  "
-            f"Excel + CSV tersimpan ({result['results_path'].name})"
+            "Analisis selesai. Hasil telah tersimpan dalam format Excel dan CSV."
         )
 
         reran = result.get("reran_plugins") or []
@@ -746,17 +768,12 @@ class ForensicTriaseApp(tk.Tk):
             output_dir=Path(folder),
         )
 
-        jml_plugin_csv = len(exported.get("plugin_csv", []))
         messagebox.showinfo(
             "Export Berhasil",
-            f"Hasil disimpan dalam dua jenis berkas:\n\n"
-            f"Excel (.xlsx):\n"
+            f"Hasil disimpan dalam tiga berkas:\n\n"
             f"  {exported['results_path'].name}\n"
-            f"  {exported['summary_path'].name}\n\n"
-            f"CSV (.csv):\n"
             f"  {exported['klasifikasi_csv'].name}\n"
-            f"  {exported['summary_csv'].name}\n"
-            f"  + {jml_plugin_csv} berkas CSV output plugin\n\n"
+            f"  {exported['summary_path'].name}\n\n"
             f"Lokasi: {folder}",
         )
         self._set_status(f"Export selesai (Excel + CSV): {folder}")
@@ -818,6 +835,36 @@ class ForensicTriaseApp(tk.Tk):
         self._clean_var.set("--")
         self._elapsed_var.set("--")
 
+    def _reset_all(self):
+        """Kembalikan platform ke kondisi seperti baru dibuka.
+
+        Meminta konfirmasi Ya/Tidak lebih dulu. Bila Ya, seluruh hasil,
+        pilihan file, statistik, dan tabel dibersihkan.
+        """
+        if self._is_running:
+            return
+        yakin = messagebox.askyesno(
+            "Reset",
+            "Apakah Anda yakin ingin mengatur ulang platform?\n\n"
+            "Seluruh hasil analisis dan pilihan file saat ini akan dihapus, "
+            "lalu platform kembali ke kondisi awal.",
+        )
+        if not yakin:
+            return
+
+        self._stop_timer()
+        self._clear_table()
+        self._reset_stats()
+        self._classifications = []
+        self._plugin_results = {}
+        self._dump_path.set("")
+        self._search_var.set("")
+        self._use_parallel_var.set(False)
+        self._progress["value"] = 0
+        self._btn_export.configure(state="disabled")
+        self._btn_reset.configure(state="disabled")
+        self._set_status("Siap. Pilih file memory dump untuk memulai.")
+
     # ------------------------------------------------------------------
     # Timer waktu pengerjaan
     # ------------------------------------------------------------------
@@ -841,16 +888,16 @@ class ForensicTriaseApp(tk.Tk):
         self._tick_timer()
 
     def _tick_timer(self):
-        """Perbarui tampilan waktu tiap detik selama analisis berjalan."""
+        """Perbarui tampilan waktu tiap detik selama analisis berjalan.
+
+        Waktu hanya ditampilkan pada kartu WAKTU di panel statistik atas,
+        tidak lagi disisipkan ke status bar bawah agar tidak menempel pada
+        pesan progres plugin.
+        """
         if self._start_time is None:
             return
         elapsed = time.monotonic() - self._start_time
-        teks = self._format_duration(elapsed)
-        self._elapsed_var.set(teks)
-        # tampilkan juga di status bar hanya saat analisis masih berjalan
-        if self._is_running:
-            base = self._status_text.get().split("   |   waktu:")[0]
-            self._status_text.set(f"{base}   |   waktu: {teks}")
+        self._elapsed_var.set(self._format_duration(elapsed))
         self._timer_job = self.after(1000, self._tick_timer)
 
     def _stop_timer(self) -> str:
@@ -876,9 +923,13 @@ class ForensicTriaseApp(tk.Tk):
         state_export  = "disabled" if running else (
             "normal" if self._classifications else "disabled"
         )
+        state_reset   = "disabled" if running else (
+            "normal" if self._classifications else "disabled"
+        )
         self._btn_analyze.configure(state=state_analyze)
         self._btn_browse.configure(state=state_browse)
         self._btn_export.configure(state=state_export)
+        self._btn_reset.configure(state=state_reset)
         self._btn_cancel.configure(state="normal" if running else "disabled")
         self._chk_parallel.configure(state="disabled" if running else "normal")
 

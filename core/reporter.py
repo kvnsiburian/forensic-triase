@@ -314,17 +314,6 @@ def export_summary(
 # Export CSV — versi datar dari isi Excel
 # ---------------------------------------------------------------------------
 
-# Nama sheet plugin dipetakan ke akhiran berkas CSV yang ringkas.
-_PLUGIN_CSV = {
-    "windows.pslist":          ("pslist",  "PSList"),
-    "windows.pstree":          ("pstree",  "PSTree"),
-    "windows.netscan":         ("netscan", "NetScan"),
-    "windows.malware.malfind": ("malfind", "Malfind"),
-    "windows.dlllist":         ("dlllist", "DllList"),
-    "windows.handles":         ("handles", "Handles"),
-}
-
-
 def _write_csv(path: Path, headers: list, rows: list) -> None:
     """Tulis satu tabel ke berkas CSV (UTF-8 dengan BOM agar rapi di Excel)."""
     with path.open("w", newline="", encoding="utf-8-sig") as f:
@@ -370,75 +359,6 @@ def export_klasifikasi_csv(
     return output_path
 
 
-def export_summary_csv(
-    classifications: list,
-    dump_name: str,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-) -> Path:
-    """Tulis statistik ringkasan satu baris ke CSV (isi sama dgn summary.xlsx)."""
-    _prepare_output_dir(output_dir)
-    output_path = _make_filename(dump_name, "summary", output_dir, ext="csv")
-
-    total      = len(classifications)
-    suspicious = sum(1 for r in classifications if r["Status"] == "SUSPICIOUS")
-    clean      = total - suspicious
-    rule1_hits = sum(1 for r in classifications if r["Rule1_hit"])
-    rule2_hits = sum(1 for r in classifications if r["Rule2_hit"])
-    rule3_hits = sum(1 for r in classifications if r["Rule3_hit"])
-    rule4_hits = sum(1 for r in classifications if r["Rule4_hit"])
-
-    headers = [
-        "Dump", "Timestamp", "Total_PID", "Suspicious", "Clean",
-        "Rule1_Hits", "Rule2_Hits", "Rule3_Hits", "Rule4_Hits",
-    ]
-    values = [
-        dump_name,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        total, suspicious, clean,
-        rule1_hits, rule2_hits, rule3_hits, rule4_hits,
-    ]
-    _write_csv(output_path, headers, [values])
-
-    logger.info(f"summary.csv ditulis: {output_path.name}")
-    return output_path
-
-
-def export_plugins_csv(
-    plugin_results: dict,
-    dump_name: str,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-) -> list:
-    """Tulis output mentah tiap plugin ke berkas CSV terpisah.
-
-    CSV bersifat datar (satu tabel per berkas), sehingga tiap plugin memakai
-    berkasnya sendiri. Kolom yang di-hide di Excel juga tidak ditulis di sini
-    supaya isinya konsisten.
-    """
-    _prepare_output_dir(output_dir)
-    written = []
-
-    for plugin, (suffix, sheet_title) in _PLUGIN_CSV.items():
-        records = plugin_results.get(plugin) or []
-        if plugin == "windows.pstree":
-            records = _flatten_pstree(records)
-
-        output_path = _make_filename(dump_name, suffix, output_dir, ext="csv")
-
-        if not records:
-            _write_csv(output_path, ["(Tidak ada data)"], [])
-            written.append(output_path)
-            continue
-
-        hidden  = HIDE_COLUMNS.get(sheet_title, set())
-        headers = [h for h in records[0].keys() if h not in hidden]
-        rows = [[_clean_cell(rec.get(h, "")) for h in headers] for rec in records]
-        _write_csv(output_path, headers, rows)
-        written.append(output_path)
-
-    logger.info(f"CSV plugin ditulis: {len(written)} berkas")
-    return written
-
-
 # ---------------------------------------------------------------------------
 # Export all
 # ---------------------------------------------------------------------------
@@ -449,11 +369,13 @@ def export_all(
     dump_name: str,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
 ) -> dict:
-    """Export dua jenis berkas sekaligus: Excel (.xlsx) dan CSV (.csv).
+    """Export tiga berkas keluaran:
 
-    Excel untuk keterbacaan (satu berkas berisi 7 sheet dengan penandaan
-    warna). CSV untuk kesesuaian dengan alur kerja Tim LFD (datar, mudah
-    diimpor dan diproses lebih lanjut).
+      1. [dump]_results.xlsx     : Excel lengkap 7 sheet (data mentah + klasifikasi)
+      2. [dump]_klasifikasi.csv  : tabel klasifikasi/vonis (sama dgn sheet Klasifikasi)
+      3. [dump]_summary.xlsx     : ringkasan statistik singkat (Excel saja)
+
+    Excel untuk keterbacaan, CSV untuk kesesuaian dengan alur kerja Tim LFD.
     """
     # ── Excel ──────────────────────────────────────────────────────────
     results_path = export_results_xlsx(
@@ -461,17 +383,11 @@ def export_all(
     )
     summary_path = export_summary(classifications, dump_name, output_dir)
 
-    # ── CSV ────────────────────────────────────────────────────────────
+    # ── CSV (hanya tabel klasifikasi/vonis) ────────────────────────────
     klasifikasi_csv = export_klasifikasi_csv(classifications, dump_name, output_dir)
-    summary_csv     = export_summary_csv(classifications, dump_name, output_dir)
-    plugin_csv      = export_plugins_csv(plugin_results, dump_name, output_dir)
 
     return {
-        # Excel
-        "results_path":     results_path,
-        "summary_path":     summary_path,
-        # CSV
-        "klasifikasi_csv":  klasifikasi_csv,
-        "summary_csv":      summary_csv,
-        "plugin_csv":       plugin_csv,
+        "results_path":     results_path,      # Excel lengkap
+        "summary_path":     summary_path,      # Excel ringkasan
+        "klasifikasi_csv":  klasifikasi_csv,   # CSV vonis
     }
