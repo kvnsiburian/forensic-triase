@@ -154,6 +154,10 @@ class ForensicTriaseApp(tk.Tk):
         self._build_ui()
         self._apply_treeview_style()
 
+        # Tangani penutupan jendela agar analisis yang sedang berjalan dihentikan
+        # lebih dulu, tidak meninggalkan thread/subprocess Volatility menggantung.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
     # ------------------------------------------------------------------
     # Build UI
     # ------------------------------------------------------------------
@@ -167,17 +171,28 @@ class ForensicTriaseApp(tk.Tk):
         self._build_table_detail_panel()  # PanedWindow — tabel + detail
 
     def _build_header(self):
-        """Header — judul platform."""
-        frame = tk.Frame(self, bg=COLOR_ACCENT, pady=12)
+        """Header — judul platform beserta subjudul singkat."""
+        frame = tk.Frame(self, bg=COLOR_ACCENT, pady=10)
         frame.pack(fill="x")
 
+        judul = tk.Frame(frame, bg=COLOR_ACCENT)
+        judul.pack(side="left", padx=16)
+
         tk.Label(
-            frame,
+            judul,
             text=f"{APP_TITLE}",
             font=FONT_TITLE,
             fg="white",
             bg=COLOR_ACCENT,
-        ).pack(side="left", padx=16)
+        ).pack(anchor="w")
+
+        tk.Label(
+            judul,
+            text="Triase forensik memori berbasis Volatility 3",
+            font=FONT_SMALL,
+            fg="#bcd7f5",
+            bg=COLOR_ACCENT,
+        ).pack(anchor="w")
 
     def _build_file_panel(self):
         """Panel pemilihan file memory dump dan tombol analisis."""
@@ -234,6 +249,7 @@ class ForensicTriaseApp(tk.Tk):
             font=FONT_NORMAL,
             bg="#7f1d1d", fg="white",
             activebackground="#991b1b",
+            disabledforeground="#8a9bb0",
             relief="flat", bd=0, highlightthickness=0,
             padx=14, pady=6,
             cursor="hand2",
@@ -249,6 +265,7 @@ class ForensicTriaseApp(tk.Tk):
             font=FONT_NORMAL,
             bg=COLOR_BORDER, fg="white",
             activebackground=COLOR_ACCENT, activeforeground="white",
+            disabledforeground="#8a9bb0",
             relief="flat", bd=0, highlightthickness=0,
             padx=14, pady=6,
             cursor="hand2",
@@ -262,6 +279,7 @@ class ForensicTriaseApp(tk.Tk):
             font=FONT_NORMAL,
             bg="#166534", fg="white",
             activebackground="#14532d",
+            disabledforeground="#8a9bb0",
             relief="flat", bd=0, highlightthickness=0,
             padx=14, pady=6,
             cursor="hand2",
@@ -270,15 +288,30 @@ class ForensicTriaseApp(tk.Tk):
         )
         self._btn_export.pack(side="left")
 
-        # Baris bawah: progress bar determinate (25% per plugin)
+        # Baris bawah: indikator kemajuan (teks + progress bar).
+        # Keduanya hanya ditampilkan saat analisis berjalan, disembunyikan
+        # saat idle supaya tidak ada "kotak" asing yang membingungkan.
+        self._progress_frame = tk.Frame(outer, bg=COLOR_PANEL)
+
+        self._progress_label_var = tk.StringVar(value="")
+        self._progress_label = tk.Label(
+            self._progress_frame,
+            textvariable=self._progress_label_var,
+            font=FONT_SMALL, fg=COLOR_SUBTEXT, bg=COLOR_PANEL,
+            anchor="w",
+        )
+        self._progress_label.pack(fill="x", pady=(0, 3))
+
         self._progress = ttk.Progressbar(
-            outer,
+            self._progress_frame,
             orient="horizontal",
             mode="determinate",
             maximum=100,
             style="Dark.Horizontal.TProgressbar",
         )
-        self._progress.pack(fill="x", pady=(10, 0))
+        self._progress.pack(fill="x")
+        # Sengaja belum di-pack ke jendela: _progress_frame baru muncul saat
+        # analisis mulai (lihat _show_progress) dan disembunyikan saat selesai.
 
     def _build_stats_panel(self):
         """Panel statistik — Total PID, SUSPICIOUS, CLEAN, WAKTU."""
@@ -288,11 +321,13 @@ class ForensicTriaseApp(tk.Tk):
         cards = tk.Frame(frame, bg=COLOR_BG)
         cards.pack(fill="x")
 
+        # Kartu WAKTU dimulai netral (abu-abu) karena "--" berarti belum jalan;
+        # warnanya baru dibiruan (COLOR_ACCENT) saat timer aktif, lihat _start_timer.
         stats = [
             ("Total PID",   self._total_var,      COLOR_TEXT),
             ("SUSPICIOUS",  self._suspicious_var,  COLOR_RED),
             ("CLEAN",       self._clean_var,        COLOR_GREEN),
-            ("WAKTU",       self._elapsed_var,      COLOR_ACCENT),
+            ("WAKTU",       self._elapsed_var,      COLOR_SUBTEXT),
         ]
 
         for i, (label, var, color) in enumerate(stats):
@@ -306,10 +341,13 @@ class ForensicTriaseApp(tk.Tk):
                 card, text=label,
                 font=FONT_SMALL, fg=COLOR_SUBTEXT, bg=COLOR_PANEL,
             ).pack()
-            tk.Label(
+            value_lbl = tk.Label(
                 card, textvariable=var,
                 font=("Segoe UI", 22, "bold"), fg=color, bg=COLOR_PANEL,
-            ).pack()
+            )
+            value_lbl.pack()
+            if label == "WAKTU":
+                self._elapsed_label = value_lbl
 
     def _build_table_detail_panel(self):
         """Panel tabel + detail yang bisa digeser proporsinya (PanedWindow)."""
@@ -344,16 +382,19 @@ class ForensicTriaseApp(tk.Tk):
             font=FONT_SMALL, fg=COLOR_SUBTEXT, bg=COLOR_BG,
         ).pack(side="left", padx=(0, 6))
 
-        # Opsi multiprocessing sejajar di sisi kanan baris pencarian
+        # Opsi multiprocessing sejajar di sisi kanan baris pencarian.
+        # Teks dibuat tebal & putih agar labelnya menonjol. selectcolor sengaja
+        # TIDAK diubah jadi warna terang: nilai selain COLOR_BORDER membuat
+        # kotak centang tak bisa diklik di lingkungan ini (sudah terbukti).
         self._chk_parallel = tk.Checkbutton(
             search_frame,
             text="Gunakan multiprocessing",
             variable=self._use_parallel_var,
-            font=FONT_NORMAL,
-            bg=COLOR_BG, fg=COLOR_TEXT,
+            font=("Segoe UI", 10, "bold"),
+            bg=COLOR_BG, fg="white",
             selectcolor=COLOR_BORDER,
             activebackground=COLOR_BG,
-            activeforeground=COLOR_TEXT,
+            activeforeground="white",
             relief="flat",
             bd=0,
             highlightthickness=0,
@@ -462,8 +503,23 @@ class ForensicTriaseApp(tk.Tk):
         self._detail_text.tag_configure("rule_line",   foreground="#f97316")
         self._detail_text.tag_configure("rekomendasi", foreground="#22c55e", font=("Consolas", 9, "bold"))
         self._detail_text.tag_configure("arrow_line",  foreground="#94a3b8")
-        
+        self._detail_text.tag_configure("placeholder", foreground=COLOR_SUBTEXT, font=("Consolas", 9, "italic"))
+
+        # Tampilkan arahan awal supaya panel tidak kosong tanpa keterangan.
+        self._show_detail_placeholder()
+
         paned.add(bottom_frame, minsize=100)
+
+    def _show_detail_placeholder(self):
+        """Isi panel Detail Indikator dengan teks arahan saat belum ada proses dipilih."""
+        self._detail_text.configure(state="normal")
+        self._detail_text.delete("1.0", "end")
+        self._detail_text.insert(
+            "end",
+            "Pilih satu proses pada tabel di atas untuk melihat alasan klasifikasinya.",
+            "placeholder",
+        )
+        self._detail_text.configure(state="disabled")
 
     def _build_statusbar(self):
         """Status bar di bagian bawah."""
@@ -514,13 +570,13 @@ class ForensicTriaseApp(tk.Tk):
 
         style.configure(
             "Dark.Horizontal.TProgressbar",
-            troughcolor="#1b2c3e",
-            background="#ffffff",
-            thickness=6,
+            troughcolor="#132234",
+            background=COLOR_ACCENT,
+            thickness=8,
             borderwidth=0,
-            bordercolor="#1b2c3e",
-            lightcolor="#1b2c3e",
-            darkcolor="#1b2c3e",
+            bordercolor="#132234",
+            lightcolor=COLOR_ACCENT,
+            darkcolor=COLOR_ACCENT,
         )
 
     # ------------------------------------------------------------------
@@ -564,7 +620,7 @@ class ForensicTriaseApp(tk.Tk):
         self._clear_table()
         self._reset_stats()
         self._search_var.set("")
-        self._progress["value"] = 0
+        self._show_progress()
         self._set_buttons_running(True)
         self._set_status("Memulai analisis...")
         self._start_timer()
@@ -596,7 +652,8 @@ class ForensicTriaseApp(tk.Tk):
         self.after(0, self._set_status, msg)
         m = re.search(r'\[(\d+)/(\d+)\]', msg)
         if m:
-            self.after(0, self._progress.configure, {"value": round(int(m.group(1)) / int(m.group(2)) * 100)})
+            done, total = int(m.group(1)), int(m.group(2))
+            self.after(0, self._set_progress, done, total)
 
     def _cancel_analysis(self):
         if not self._is_running:
@@ -605,13 +662,37 @@ class ForensicTriaseApp(tk.Tk):
         self._clear_table()
         self._stop_timer()
         self._reset_stats()
-        self._progress["value"] = 0
+        self._hide_progress()
         self._set_buttons_running(False)
         self._set_status("Analisis dibatalkan.")
+
+    def _on_close(self):
+        """Konfirmasi sebelum menutup jendela saat analisis masih berjalan.
+
+        Bila pengguna tetap keluar, cancel_event di-set lebih dulu supaya
+        thread analisis berhenti dan tidak ada subprocess Volatility yang
+        menggantung setelah jendela ditutup.
+        """
+        if self._is_running:
+            keluar = messagebox.askyesno(
+                "Analisis sedang berjalan",
+                "Analisis masih berlangsung.\n\n"
+                "Jika keluar sekarang, proses analisis akan dihentikan dan "
+                "hasilnya tidak tersimpan. Tetap keluar?",
+            )
+            if not keluar:
+                return
+            # Beri sinyal berhenti ke thread analisis sebelum jendela ditutup.
+            self._cancel_event.set()
+            if self._timer_job is not None:
+                self.after_cancel(self._timer_job)
+                self._timer_job = None
+        self.destroy()
 
     def _on_analysis_done(self, result: dict):
         self._set_buttons_running(False)
         self._stop_timer()   # hentikan timer & kunci nilai akhir di kartu WAKTU
+        self._hide_progress()
 
         if not result["success"]:
             messagebox.showerror("Analisis Gagal", result["error"])
@@ -629,7 +710,7 @@ class ForensicTriaseApp(tk.Tk):
         self._populate_table(self._classifications)
         self._btn_export.configure(state="normal")
         self._btn_reset.configure(state="normal")
-        self._progress["value"] = 100
+        self._hide_progress()
 
         self._set_status(
             "Analisis selesai. Hasil telah tersimpan dalam format Excel dan CSV."
@@ -647,6 +728,7 @@ class ForensicTriaseApp(tk.Tk):
     def _on_analysis_error(self, error: str):
         self._set_buttons_running(False)
         self._stop_timer()
+        self._hide_progress()
         messagebox.showerror("Error", error)
         self._set_status(f"Error: {error}")
 
@@ -761,12 +843,32 @@ class ForensicTriaseApp(tk.Tk):
 
         dump_name      = Path(self._dump_path.get()).name
         plugin_results = getattr(self, "_plugin_results", {})
-        exported = export_all(
-            self._classifications,
-            plugin_results,
-            dump_name,
-            output_dir=Path(folder),
-        )
+
+        try:
+            exported = export_all(
+                self._classifications,
+                plugin_results,
+                dump_name,
+                output_dir=Path(folder),
+            )
+        except PermissionError:
+            # Penyebab paling umum: berkas hasil lama masih dibuka di Excel,
+            # atau folder tujuan tidak dapat ditulisi.
+            messagebox.showerror(
+                "Export Gagal",
+                "Tidak dapat menulis berkas hasil.\n\n"
+                "Pastikan berkas hasil sebelumnya (results.xlsx / summary.xlsx) "
+                "tidak sedang dibuka di Excel, lalu coba lagi.",
+            )
+            self._set_status("Export gagal: berkas hasil sedang dibuka atau folder tidak bisa ditulisi.")
+            return
+        except Exception as e:
+            messagebox.showerror(
+                "Export Gagal",
+                f"Terjadi kesalahan saat menyimpan hasil:\n\n{e}",
+            )
+            self._set_status(f"Export gagal: {e}")
+            return
 
         messagebox.showinfo(
             "Export Berhasil",
@@ -825,15 +927,17 @@ class ForensicTriaseApp(tk.Tk):
         for item in self._tree.get_children():
             self._tree.delete(item)
 
-        self._detail_text.configure(state="normal")
-        self._detail_text.delete("1.0", "end")
-        self._detail_text.configure(state="disabled")
+        # Kembalikan panel detail ke arahan awal, bukan kotak kosong.
+        self._show_detail_placeholder()
 
     def _reset_stats(self):
         self._total_var.set("--")
         self._suspicious_var.set("--")
         self._clean_var.set("--")
         self._elapsed_var.set("--")
+        # Kartu WAKTU kembali netral (abu-abu) saat belum ada analisis.
+        if hasattr(self, "_elapsed_label"):
+            self._elapsed_label.configure(fg=COLOR_SUBTEXT)
 
     def _reset_all(self):
         """Kembalikan platform ke kondisi seperti baru dibuka.
@@ -860,10 +964,38 @@ class ForensicTriaseApp(tk.Tk):
         self._dump_path.set("")
         self._search_var.set("")
         self._use_parallel_var.set(False)
-        self._progress["value"] = 0
+        self._hide_progress()
         self._btn_export.configure(state="disabled")
         self._btn_reset.configure(state="disabled")
         self._set_status("Siap. Pilih file memory dump untuk memulai.")
+
+    # ------------------------------------------------------------------
+    # Indikator kemajuan (progress bar + teks persentase)
+    # ------------------------------------------------------------------
+
+    def _show_progress(self):
+        """Tampilkan indikator kemajuan di bawah baris tombol saat analisis mulai."""
+        self._progress["value"] = 0
+        self._progress_label_var.set("Memproses... 0%")
+        if not self._progress_frame.winfo_ismapped():
+            self._progress_frame.pack(fill="x", pady=(10, 0))
+
+    def _hide_progress(self):
+        """Sembunyikan indikator kemajuan saat idle/selesai supaya tidak membingungkan."""
+        if self._progress_frame.winfo_ismapped():
+            self._progress_frame.pack_forget()
+        self._progress["value"] = 0
+        self._progress_label_var.set("")
+
+    def _set_progress(self, done: int, total: int):
+        """Perbarui bar dan teks persentase, misal 'Memproses... 33%'.
+
+        Rincian (i/n) dan nama plugin sudah tampil di status bar bawah, jadi
+        di sini cukup persentasenya saja agar tidak berulang.
+        """
+        persen = round(done / total * 100) if total else 0
+        self._progress["value"] = persen
+        self._progress_label_var.set(f"Memproses... {persen}%")
 
     # ------------------------------------------------------------------
     # Timer waktu pengerjaan
@@ -885,6 +1017,9 @@ class ForensicTriaseApp(tk.Tk):
         """Mulai menghitung waktu dan tampilkan detiknya secara live."""
         self._start_time = time.monotonic()
         self._elapsed_var.set("0s")
+        # Angka waktu dibiruan agar menonjol selama/ sesudah analisis.
+        if hasattr(self, "_elapsed_label"):
+            self._elapsed_label.configure(fg=COLOR_ACCENT)
         self._tick_timer()
 
     def _tick_timer(self):
@@ -935,10 +1070,8 @@ class ForensicTriaseApp(tk.Tk):
 
         if running:
             self._btn_analyze.configure(text="  Menganalisis...")
-            self._progress["value"] = 0
         else:
             self._btn_analyze.configure(text="  Mulai Analisis")
-            self._progress["value"] = 0
 
 
 # ---------------------------------------------------------------------------
