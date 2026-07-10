@@ -63,8 +63,9 @@ def run_analysis(
             "success"        : bool,
             "error"          : str | None,
             "classifications": list[dict],   # output classify_all()
-            "results_path"   : Path | None,  # path results.xlsx
-            "summary_path"   : Path | None,  # path summary.xlsx
+            "results_path"   : Path | None,  # path results.xlsx (Excel lengkap)
+            "summary_path"   : Path | None,  # path summary.xlsx (Excel ringkasan)
+            "klasifikasi_csv": Path | None,  # path klasifikasi.csv (tabel vonis)
             "stats": {
                 "total"     : int,
                 "suspicious": int,
@@ -84,6 +85,7 @@ def run_analysis(
         "classifications": [],
         "results_path":    None,
         "summary_path":    None,
+        "klasifikasi_csv": None,
         "stats": {
             "total":      0,
             "suspicious": 0,
@@ -150,6 +152,7 @@ def run_analysis(
             "reran_plugins":   reran_plugins,
             "results_path":    exported["results_path"],
             "summary_path":    exported["summary_path"],
+            "klasifikasi_csv": exported["klasifikasi_csv"],
             "stats": {
                 "total":      total,
                 "suspicious": suspicious,
@@ -171,9 +174,9 @@ def run_analysis(
 
 
 # ---------------------------------------------------------------------------
-# Quick test: python3 main.py /mnt/d/dump.dmp
+# Quick test : python3 main.py /mnt/d/dump.dmp
+# Mode paralel: python3 main.py /mnt/d/dump.dmp --parallel
 # ---------------------------------------------------------------------------
-# Di bagian __main__ main.py, ganti seluruh blok if __name__ == "__main__":
 if __name__ == "__main__":
     import sys
 
@@ -189,14 +192,17 @@ if __name__ == "__main__":
             datefmt="%H:%M:%S",
         )
         dump = sys.argv[1]
+        # Mode paralel opsional: tambahkan --parallel setelah path dump
+        use_parallel = "--parallel" in sys.argv[2:]
         print("\n" + "=" * 60)
         print("  CLI MODE -- main.py")
+        print(f"  Mode plugin: {'PARALEL (multiprocessing)' if use_parallel else 'BERURUTAN'}")
         print("=" * 60)
 
         def on_progress(msg: str):
             print(f"  >> {msg}")
 
-        result = run_analysis(dump, progress_callback=on_progress)
+        result = run_analysis(dump, progress_callback=on_progress, use_parallel=use_parallel)
 
         print("\n--- HASIL AKHIR ---")
         if result["success"]:
@@ -205,8 +211,9 @@ if __name__ == "__main__":
             print(f"Total PID  : {stats['total']}")
             print(f"SUSPICIOUS : {stats['suspicious']}")
             print(f"CLEAN      : {stats['clean']}")
-            print(f"results.xlsx: {result['results_path']}")
-            print(f"summary.xlsx: {result['summary_path']}")
+            print(f"results.xlsx   : {result['results_path']}")
+            print(f"klasifikasi.csv: {result['klasifikasi_csv']}")
+            print(f"summary.xlsx   : {result['summary_path']}")
         else:
             print(f"Status : GAGAL")
             print(f"Error  : {result['error']}")
