@@ -73,8 +73,14 @@ def _make_filename(dump_name: str, suffix: str, output_dir: Path, ext: str = "xl
 
 def _clean_cell(value) -> str:
     """Buang karakter kontrol yang ditolak Excel (muncul di output
-    windows.handles pada nama objek kernel tertentu)."""
-    return ILLEGAL_CHARACTERS_RE.sub("", str(value))
+    windows.handles pada nama objek kernel tertentu) dan netralkan sel yang
+    diawali karakter rumus (=, +, -, @) yang ditolak openpyxl sebagai formula.
+    Nilai seperti '=sE...' (potongan nama/path proses pada dump tertentu) bisa
+    menghentikan seluruh export bila tak dinetralkan."""
+    text = ILLEGAL_CHARACTERS_RE.sub("", str(value))
+    if text[:1] in ("=", "+", "-", "@"):
+        text = "'" + text
+    return text
 
 
 def _flatten_pstree(records: list) -> list:
@@ -239,9 +245,9 @@ def export_results_xlsx(
         reasons_str = _clean_cell(" | ".join(rec.get("Reasons", [])))
         row = [
             rec["PID"],
-            rec["Name"],
-            rec["Path"] or "",
-            rec["Status"],
+            _clean_cell(rec["Name"]),
+            _clean_cell(rec["Path"] or ""),
+            _clean_cell(rec["Status"]),
             rec["Rule1_hit"],
             rec["Rule2_hit"],
             rec["Rule3_hit"],
@@ -344,9 +350,9 @@ def export_klasifikasi_csv(
     for rec in classifications:
         rows.append([
             rec["PID"],
-            rec["Name"],
-            rec["Path"] or "",
-            rec["Status"],
+            _clean_cell(rec["Name"]),
+            _clean_cell(rec["Path"] or ""),
+            _clean_cell(rec["Status"]),
             rec["Rule1_hit"],
             rec["Rule2_hit"],
             rec["Rule3_hit"],
