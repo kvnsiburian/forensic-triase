@@ -38,6 +38,7 @@ Program : Rekayasa Keamanan Siber - PSSN
 import subprocess
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -179,6 +180,29 @@ class VolatilityRunner:
         except Exception as e:
             logger.exception(f"[{plugin}] Kesalahan tidak terduga: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # Eksekusi satu plugin + ukur durasi (untuk uji skala CLI)
+    # ------------------------------------------------------------------
+
+    def run_plugin_timed(self, plugin: str) -> tuple:
+        """
+        Bungkus run_plugin() sambil mengukur durasi eksekusinya.
+
+        Dipakai mode CLI untuk uji skala ukuran dump (tabel durasi per-plugin).
+        Tidak mengubah logika plugin maupun hasil klasifikasi -- hanya
+        mencatat waktu. Jalur GUI dan run_all() biasa tidak terpengaruh.
+
+        Return
+        ------
+        tuple(list | None, float)
+            (hasil run_plugin, durasi_detik)
+        """
+        mulai = time.perf_counter()
+        hasil = self.run_plugin(plugin)
+        durasi = time.perf_counter() - mulai
+        logger.info(f"[{plugin}] Durasi: {durasi:.2f} detik")
+        return hasil, durasi
 
     # ------------------------------------------------------------------
     # Parse output JSON dari Volatility3
