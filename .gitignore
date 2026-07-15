@@ -27,3 +27,4 @@ __pycache__/
 # File backup manual (jangan ikut ter-commit)
 *.bak
 *.bak*
+*Zone.Identifier
