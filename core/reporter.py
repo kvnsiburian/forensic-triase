@@ -23,8 +23,6 @@ B. Berkas CSV (.csv) — agar sesuai dengan alur kerja Tim LFD
   2. [nama_dump]_[timestamp]_summary.csv     : statistik ringkasan satu baris
   3. [nama_dump]_[timestamp]_[plugin].csv    : output mentah tiap plugin
 
-Author  : Kevin Armando Siburian (2221101800)
-Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import csv

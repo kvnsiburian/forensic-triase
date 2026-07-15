@@ -456,3 +456,108 @@ _(Sumber & sampel dipilih kemudian.)_
 - Baseline lama sbg pembanding regresi: 845 PID, TP=10, FP=1, FN=0, TN=834
   (akan berubah setelah rebuild; angka baru menggantikan setelah semua dataset
   selesai & regresi ulang dijalankan).
+
+---
+
+## 14. Uji Skala Ukuran Dump + Perbandingan Platform vs Manual  [KERANGKA]
+
+> Menjawab masukan analis LFD (Abang): uji waktu analisis pada beberapa ukuran
+> dump, tunjukkan perilaku malfind saat RAM membesar. Ditambah perbandingan
+> waktu kerja platform vs manual untuk menjawab "cepat dari apa".
+> Status: konsep FINAL, menunggu eksekusi lab (2 capture baru).
+
+### 14.1 Dua pertanyaan yang dijawab
+
+- **A (skala):** platform sanggup memproses dump s/d 20 GB? bagaimana durasi
+  berubah seiring ukuran (khususnya malfind)?
+- **B (nilai otomasi):** berapa waktu KERJA ANALIS yang dipangkas platform
+  dibanding analisis manual sampai memperoleh kesimpulan?
+
+**Klaim yang boleh:** "platform sanggup s/d 20 GB; durasi total naik seiring
+ukuran; malfind penyumbang terbesar" + "platform memangkas waktu kerja analis;
+selisih melebar seiring ukuran dump".
+**Klaim yang DILARANG:** "mesin platform lebih cepat dari Volatility3" (mesinnya
+sama), dan menyeret angka multiprocessing 2,71x ke klaim laporan.
+
+### 14.2 Konsep kunci: pisahkan waktu mesin vs manusia
+
+- **Waktu mesin** (Volatility3 berjalan) = SAMA di manual & platform. Bukan
+  keunggulan platform, diakui jujur.
+- **Waktu manusia** (baca output 6 plugin, cocokkan acuan, simpulkan) = di sini
+  platform menang, otomasi ~nol. Makin besar dump makin banyak yang harus dibaca
+  manusia, makin besar keunggulan platform. Ini yang menyambungkan A dan B: gap
+  platform-vs-manual diharapkan MELEBAR dari 5 ke 20 GB.
+
+### 14.3 Desain (isolasi satu variabel: ukuran)
+
+Variabel bebas: ukuran dump. Dikunci: skenario (r3 injection identik), build OS,
+kode/analyzer (dibekukan), laptop pengukur, mode BERURUTAN (bukan paralel).
+
+| Titik | RAM VM | Sumber dump | Isi |
+|---|---|---|---|
+| 1 | 5 GB | `infected_r3_injection.raw` (SUDAH ADA) | r3 injection |
+| 2 | 12 GB | capture baru `infected_r3_injection_12gb.raw` | r3 injection (sama) |
+| 3 | 20 GB | capture baru `infected_r3_injection_20gb.raw` | r3 injection (sama) |
+
+Kenapa r3: sekalian buktikan deteksi R3 tetap TP di 5/12/20 (aturan tak jebol
+saat dump besar). Kenapa 3 bukan 18 (6 dataset x 3 ukuran): durasi ditentukan
+UKURAN yang dipindai, bukan jenis ancaman; 18 dump = mengukur variabel sama
+berulang + mencampur dua variabel (tidak bersih). Kenapa 5/12/20 (host 32 GB
+terverifikasi): 20 GB menyisakan ~12 GB untuk host = aman dari swap/crash;
+24 GB menyisakan ~8 GB = mepet, ditolak.
+
+### 14.4 Cara mengukur (per dump, 3 ukuran)
+
+- **Waktu platform:** dari mulai analisis sampai vonis + Excel keluar. Diambil
+  dari timer CLI internal (`--timing`, lihat 14.5), bukan stopwatch tangan.
+- **Waktu manual (Kevin sendiri):** stopwatch dari mengetik perintah vol3
+  pertama SAMPAI menuliskan kesimpulan "PID X suspicious karena Y". WAJIB
+  benar-benar menjalankan 6 plugin + membaca output + mencocokkan acuan
+  (JANGAN menyontek hasil platform, itu membuat angka palsu).
+- **Bias yang wajib disebut:** Kevin tahu ground truth (menanam malware sendiri)
+  -> saat manual tak sadar terlalu cepat -> MENGUNTUNGKAN sisi manual. Maka kalau
+  platform tetap menang, klaim makin kuat. Framing keterbatasan: "waktu manual
+  kemungkinan lebih singkat dari kondisi nyata; keunggulan platform di dunia
+  nyata kemungkinan lebih besar lagi".
+
+### 14.5 Instrumentasi kode (SUDAH DIBUAT)
+
+- `core/runner.py`: method `run_plugin_timed()` membungkus `run_plugin()` dengan
+  `time.perf_counter` (delegasi murni, tak mengubah hasil).
+- `main.py`: param `collect_timing` (jalur berurutan) + flag CLI `--timing` yang
+  mencetak tabel durasi per-plugin + total dan menulis `<dump>_timing.csv`.
+- Diverifikasi: klasifikasi & stats identik dengan/tanpa timing; regression tetap
+  TP=7/FP=1/FN=0. GUI dan jalur paralel tidak terpengaruh.
+- Pemakaian: `python3 main.py <dump>.raw --timing`.
+
+### 14.6 Prosedur lab (capture baru 12 & 20 GB)
+
+Per ukuran: restore snapshot bersih (Win10 22H2 19045.2965) -> matikan VM, set
+RAM ke target -> putus internet (host-only) -> reproduksi r3 (msfvenom
+meterpreter reflective DLL -> inject `notepad.exe`, pastikan injeksi terbentuk)
+-> DumpIt (Administrator) selagi injeksi aktif -> catat ground truth (`tasklist`,
+PID notepad terinjeksi) -> salin ke `D:\forensic_triase\dataset_update\` -> buang
+snapshot terinfeksi. Titik 5 GB tidak perlu capture ulang (dump sudah ada).
+
+### 14.7 Bentuk tabel hasil
+
+**Tabel A — durasi platform per-plugin vs ukuran (detik):** baris = 6 plugin +
+Total; kolom = 5/12/20 GB. malfind disorot (diharapkan naik tertajam).
+
+**Tabel B — platform vs manual (menit):** kolom = ukuran, waktu platform, waktu
+manual, selisih, deteksi R3 (harus TP di ketiganya). Klaim: selisih melebar
+seiring ukuran; akurasi deteksi stabil terhadap ukuran.
+
+### 14.8 Keterbatasan yang WAJIB ditulis (biar tak diserang penguji)
+
+1. Analis manual = peneliti tunggal, tahu ground truth -> manual bias cepat.
+2. Manual sangat bergantung skill; satu angka tak mewakili semua analis.
+3. Pengukuran terbatas (idealnya banyak orang/ulangan). Justru pengakuan ini
+   memperkuat kredibilitas.
+
+### 14.9 Prioritas
+
+Ini kerja TAMBAHAN, bukan blocker kelulusan. Jalur kritis tetap UAT + penulisan
+bab. Kalau bentrok waktu, UAT menang. Manual di 20 GB melelahkan (baca puluhan
+ribu baris sungguhan); kalau tak sanggup, turunkan ke manual 5 & 12 saja
+(platform tetap 3 titik).

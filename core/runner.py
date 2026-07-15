@@ -31,8 +31,6 @@ Catatan teknis:
   - Timeout default 300 detik per plugin (memory dump ~2GB butuh waktu)
   - Platform Linux only sesuai pembatasan masalah (proposal BAB I)
 
-Author  : Kevin Armando Siburian (2221101800)
-Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import subprocess

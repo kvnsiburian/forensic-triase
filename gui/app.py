@@ -27,8 +27,6 @@ Desain:
   - Panel tabel dan detail bisa digeser proporsinya (PanedWindow)
   - Search bar untuk filter proses secara real-time
 
-Author  : Kevin Armando Siburian (2221101800)
-Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import tkinter as tk
@@ -1003,7 +1001,10 @@ class ForensicTriaseApp(tk.Tk):
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
-        """Ubah detik menjadi format ringkas, misal 45s, 3m 12s, 1j 04m."""
+        """Ubah detik menjadi format ringkas, misal 45s, 3m 12s, 1j 04m.
+
+        Dipakai untuk timer live (per detik) agar tampilan tidak berkedip.
+        """
         total = int(round(seconds))
         jam, sisa = divmod(total, 3600)
         menit, detik = divmod(sisa, 60)
@@ -1012,6 +1013,25 @@ class ForensicTriaseApp(tk.Tk):
         if menit:
             return f"{menit}m {detik:02d}s"
         return f"{detik}s"
+
+    @staticmethod
+    def _format_duration_precise(seconds: float) -> str:
+        """Format durasi AKHIR dengan presisi milisekon, misal 45.30s,
+        3m 12.48s, 1j 04m 30.15s.
+
+        Hanya dipakai untuk nilai akhir yang dikunci di kartu WAKTU setelah
+        analisis selesai, bukan untuk timer live, agar pencatatan durasi lebih
+        tepat tanpa membuat angka berkedip selama proses berjalan.
+        """
+        jam, sisa = divmod(seconds, 3600)
+        jam = int(jam)
+        menit, detik = divmod(sisa, 60)
+        menit = int(menit)
+        if jam:
+            return f"{jam}j {menit:02d}m {detik:05.2f}s"
+        if menit:
+            return f"{menit}m {detik:05.2f}s"
+        return f"{detik:.2f}s"
 
     def _start_timer(self):
         """Mulai menghitung waktu dan tampilkan detiknya secara live."""
@@ -1043,7 +1063,7 @@ class ForensicTriaseApp(tk.Tk):
         if self._start_time is None:
             return "--"
         elapsed = time.monotonic() - self._start_time
-        teks = self._format_duration(elapsed)
+        teks = self._format_duration_precise(elapsed)
         self._elapsed_var.set(teks)
         self._start_time = None
         return teks

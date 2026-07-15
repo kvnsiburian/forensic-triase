@@ -402,3 +402,39 @@ hasil: `results/r4b_lsass/`
 
 ## Regresi & Metrik — ⏳ BELUM
 - Jalankan ulang semua dataset, hitung Sensitivity/Specificity/Precision, tabel confusion.
+
+## Uji Skala Ukuran Dump + Perbandingan Platform vs Manual — 🔄 SEDANG BERJALAN (10 Juli 2026)
+
+**Tujuan:** menjawab masukan analis LFD (Abang) — uji durasi analisis pada
+beberapa ukuran dump (malfind melambat di RAM besar), + perbandingan waktu
+platform vs manual. Konsep resmi: `docs/dataset_design.md` §14. Draf konsep
+lengkap + checklist: scratchpad (lihat prompt handoff).
+
+**Desain (dikunci):**
+- 3 titik ukuran: **5 / 12 / 20 GB**, semua skenario **r3 injection yang sama**
+  (isolasi variabel: hanya ukuran yang berubah, bukan 6×3=18 dataset).
+- Titik 5 GB pakai ulang `infected_r3_injection.raw` (sudah ada). Cuma 2 capture
+  baru: 12 & 20 GB. Host 32 GB terverifikasi cukup (20 GB sisakan ~12 GB host).
+- Framing WAJIB: kesanggupan skala + pangkas **waktu kerja analis** (bukan
+  kecepatan mesin). DILARANG klaim "mesin lebih cepat" & angka mp 2,71x.
+- Perbandingan platform-vs-manual diukur di 3 ukuran; "manual" = sampai
+  kesimpulan clean/suspicious (baca output + cocokkan acuan), analis = Kevin
+  sendiri (bias ground-truth disebut jujur di keterbatasan).
+
+**Sudah SELESAI:**
+- ✅ Instrumentasi timer CLI: `core/runner.py` `run_plugin_timed()` + `main.py`
+  flag `--timing` (cetak tabel durasi per-plugin + tulis `<dump>_timing.csv`).
+  Terverifikasi tak ubah deteksi (regression tetap TP=7/FP=1/FN=0).
+  **Ter-commit & ter-push: `2562dbd`.**
+- ✅ Titik data 5 GB terukur (10 Juli): pslist 1,37 / pstree 3,14 / netscan
+  42,81 / **malfind 134,47** / dlllist 39,32 / handles 107,46 / **TOTAL 328,57
+  detik**. Deteksi PID 3404 notepad.exe → SUSPICIOUS R3=Y (TP), 147 PID.
+  CSV: `dataset_update/infected_r3_injection_timing.csv`.
+
+**BELUM (kerja lab fisik Kevin):**
+- ⏳ Capture dump **12 GB** (r3 injection) → `infected_r3_injection_12gb.raw`.
+- ⏳ Capture dump **20 GB** (r3 injection) → `infected_r3_injection_20gb.raw`.
+- ⏳ Jalankan `--timing` di 2 dump baru + ukur waktu MANUAL di 3 ukuran.
+- ⏳ Isi Tabel A (durasi per-plugin × ukuran) & Tabel B (platform vs manual).
+- Checklist capturenya sudah rapi (prosedur r3 terbukti: migrate ke notepad,
+  sleep 300, Defender OFF, DumpIt, verifikasi injeksi terbentuk).

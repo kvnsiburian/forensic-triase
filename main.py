@@ -12,8 +12,6 @@ GUI (gui/app.py) hanya memanggil fungsi run_analysis() dari sini.
 Dengan desain ini, GUI dan logika analisis sepenuhnya terpisah —
 jika suatu saat GUI diganti, logika inti tidak perlu diubah.
 
-Author  : Kevin Armando Siburian (2221101800)
-Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import logging

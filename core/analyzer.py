@@ -54,8 +54,6 @@ Klasifikasi bersifat binary (proposal BAB III):
               Process; handles -> Type, Name (format "lsass.exe Pid <PID>"),
               GrantedAccess (integer desimal).
 
-Author  : Kevin Armando Siburian (2221101800)
-Program : Rekayasa Keamanan Siber - PSSN
 """
 
 import logging
